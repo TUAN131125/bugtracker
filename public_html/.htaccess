@@ -1,0 +1,204 @@
+<?php
+
+declare(strict_types=1);
+
+/**
+ * config.php – Application Configuration
+ *
+ * Load sau khi phpdotenv đã inject $_ENV.
+ * Định nghĩa constants và helper functions dùng toàn ứng dụng.
+ *
+ * KHÔNG đặt logic nghiệp vụ ở đây — chỉ constants và helpers.
+ *
+ * @see TDD Backend v1.0.0 – Phần 3.2
+ * @see Task Assignment v1.0.0 – D1-010
+ */
+
+// ----------------------------------------------------------------
+// Path Constants
+// Tất cả path tương đối từ APP_ROOT để tránh hardcode
+// ----------------------------------------------------------------
+
+/** Root của toàn bộ project (ngoài public_html) */
+define('APP_ROOT', dirname(__DIR__, 2));
+
+/** Thư mục /app */
+define('APP_PATH', APP_ROOT . '/app');
+
+/** Thư mục /app/Views */
+define('VIEWS_PATH', APP_PATH . '/Views');
+
+/** Thư mục /storage */
+define('STORAGE_PATH', APP_ROOT . '/storage');
+
+/** Thư mục /storage/attachments */
+define('ATTACHMENTS_PATH', STORAGE_PATH . '/attachments');
+
+/** Thư mục /storage/logs */
+define('LOGS_PATH', STORAGE_PATH . '/logs');
+
+/** Thư mục /public_html */
+define('PUBLIC_PATH', APP_ROOT . '/public_html');
+
+// ----------------------------------------------------------------
+// Application Constants
+// ----------------------------------------------------------------
+
+/** Base URL của app (không có trailing slash) */
+define('APP_URL', rtrim($_ENV['APP_URL'] ?? 'http://localhost', '/'));
+
+/** Môi trường: 'local' | 'production' */
+define('APP_ENV', $_ENV['APP_ENV'] ?? 'local');
+
+/** Debug mode */
+define('APP_DEBUG', filter_var($_ENV['APP_DEBUG'] ?? 'false', FILTER_VALIDATE_BOOLEAN));
+
+// ----------------------------------------------------------------
+// Upload Constants (SRS Phần 3.3.2)
+// ----------------------------------------------------------------
+
+/** Kích thước tối đa mỗi file upload: 2MB */
+define('UPLOAD_MAX_SIZE', (int) ($_ENV['UPLOAD_MAX_SIZE'] ?? 2097152));
+
+/** Số file tối đa mỗi Issue */
+define('UPLOAD_MAX_FILES', (int) ($_ENV['UPLOAD_MAX_FILES'] ?? 5));
+
+/** Các MIME type được phép upload */
+define('UPLOAD_ALLOWED_MIME_TYPES', [
+    'image/jpeg',
+    'image/jpg',
+    'image/png',
+    'image/gif',
+    'application/pdf',
+    'text/plain',
+    'application/zip',
+    'application/x-zip-compressed',
+]);
+
+/** Extension được phép (double-check cùng với MIME) */
+define('UPLOAD_ALLOWED_EXTENSIONS', explode(
+    ',',
+    $_ENV['UPLOAD_ALLOWED_TYPES'] ?? 'jpg,jpeg,png,gif,pdf,txt,zip'
+));
+
+// ----------------------------------------------------------------
+// Token TTL Constants (tính bằng giây)
+// ----------------------------------------------------------------
+
+/** Email verification token: 24 giờ */
+define('TOKEN_TTL_EMAIL_VERIFY', (int) ($_ENV['TOKEN_TTL_EMAIL_VERIFY'] ?? 86400));
+
+/** Password reset token: 1 giờ */
+define('TOKEN_TTL_PASSWORD_RESET', (int) ($_ENV['TOKEN_TTL_PASSWORD_RESET'] ?? 3600));
+
+/** Workspace invitation token: 7 ngày */
+define('TOKEN_TTL_INVITATION', (int) ($_ENV['TOKEN_TTL_INVITATION'] ?? 604800));
+
+/** Remember Me cookie: 30 ngày */
+define('REMEMBER_ME_DAYS', (int) ($_ENV['REMEMBER_ME_DAYS'] ?? 30));
+
+// ----------------------------------------------------------------
+// Pagination
+// ----------------------------------------------------------------
+
+/** Số bản ghi mặc định mỗi trang */
+define('PAGINATION_PER_PAGE', (int) ($_ENV['PAGINATION_PER_PAGE'] ?? 20));
+
+// ----------------------------------------------------------------
+// Issue State Machine
+// Định nghĩa ma trận chuyển đổi trạng thái hợp lệ
+// Tham chiếu: SRS Phần 3.3.1, TDD UC-023
+// ----------------------------------------------------------------
+
+/**
+ * Ma trận trạng thái hợp lệ.
+ * Key: trạng thái hiện tại.
+ * Value: mảng các trạng thái được phép chuyển đến.
+ *
+ * Dev 2 (IssueService) sẽ dùng constant này.
+ * Dev 3 (issue-detail.js) sẽ nhận valid_transitions từ Controller.
+ */
+define('ISSUE_STATE_TRANSITIONS', [
+    'open'        => ['in_triage', 'in_progress', 'wont_fix', 'duplicate'],
+    'in_triage'   => ['in_progress', 'wont_fix', 'duplicate'],
+    'in_progress' => ['resolved', 'reopened'],
+    'resolved'    => ['closed', 'reopened'],
+    'closed'      => ['reopened'],
+    'reopened'    => ['in_progress'],
+    'wont_fix'    => [],
+    'duplicate'   => [],
+]);
+
+/**
+ * Role nào được phép thực hiện transition nào.
+ * Key: transition target status.
+ * Value: array roles được phép.
+ */
+define('ISSUE_TRANSITION_ROLES', [
+    'in_triage'   => ['owner', 'admin'],
+    'in_progress' => ['owner', 'admin', 'member'],
+    'resolved'    => ['owner', 'admin', 'member'],
+    'closed'      => ['owner', 'admin', 'member'],  // QA action
+    'reopened'    => ['owner', 'admin', 'member'],
+    'wont_fix'    => ['owner', 'admin'],
+    'duplicate'   => ['owner', 'admin'],
+]);
+
+// ----------------------------------------------------------------
+// Helper Functions
+// ----------------------------------------------------------------
+
+/**
+ * Tạo URL đầy đủ từ path tương đối.
+ * VD: url('/issues/BT-001') → 'http://domain.com/issues/BT-001'
+ *
+ * @param  string $path
+ * @return string
+ */
+function url(string $path = ''): string
+{
+    return APP_URL . '/' . ltrim($path, '/');
+}
+
+/**
+ * Lấy đường dẫn asset (CSS, JS, Images).
+ * VD: asset('css/app.css') → 'http://domain.com/assets/css/app.css'
+ *
+ * @param  string $path
+ * @return string
+ */
+function asset(string $path): string
+{
+    return APP_URL . '/assets/' . ltrim($path, '/');
+}
+
+/**
+ * Kiểm tra môi trường có phải production không.
+ *
+ * @return bool
+ */
+function isProduction(): bool
+{
+    return APP_ENV === 'production';
+}
+
+/**
+ * Dump and die – debug helper, CHỈ dùng trong development.
+ *
+ * @param  mixed ...$vars
+ * @return never
+ */
+function dd(mixed ...$vars): never
+{
+    if (isProduction()) {
+        exit();
+    }
+
+    echo '<pre style="background:#1e1e1e;color:#d4d4d4;padding:16px;border-radius:8px;font-size:13px;overflow:auto;">';
+    foreach ($vars as $var) {
+        var_dump($var);
+        echo "\n";
+    }
+    echo '</pre>';
+    exit();
+}
