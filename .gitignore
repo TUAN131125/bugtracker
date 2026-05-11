@@ -1,0 +1,24 @@
+# Environment — TUYỆT ĐỐI không commit
+.env
+
+# Composer vendor
+/vendor/
+
+# Storage content — giữ folder, bỏ nội dung
+/storage/attachments/*
+/storage/logs/*
+!storage/attachments/.gitkeep
+!storage/logs/.gitkeep
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# PHP cache
+*.cache
