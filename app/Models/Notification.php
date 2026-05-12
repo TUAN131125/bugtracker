@@ -72,4 +72,12 @@ class Notification
         $stmt->execute([$userId, $workspaceId]);
         return (int) $stmt->fetchColumn();
     }
+    
+    public function findById(int $id): ?array
+    {
+        $stmt = $this->db->prepare("SELECT * FROM notifications WHERE id = ? LIMIT 1");
+        $stmt->execute([$id]);
+        $result = $stmt->fetch();
+        return $result ?: null;
+    }
 }
