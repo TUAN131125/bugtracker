@@ -16,13 +16,10 @@ use App\Models\User;
  *
  * Xử lý UC-003 (Đăng nhập) và UC-004 (Đăng xuất).
  * Rate limiting: 5 lần sai/15 phút → lock IP.
- * Remember Me: HttpOnly cookie + DB token.
+ * Remember Me: HttpOnly cookie + DB token (Auto-login).
  *
  * @package App\Controllers\Auth
- * @version 1.0.0
- * @see     SRS v1.0.0 – UC-003, UC-004
- * @see     TDD Backend v1.0.0 – Phần 1.4 (Token security)
- * @see     Task Assignment v1.0.0 – D1-014
+ * @version 1.0.1
  */
 class LoginController
 {
@@ -32,6 +29,9 @@ class LoginController
     /** Thời gian lock (phút) */
     private const LOCK_MINUTES = 15;
 
+    /** Thời gian sống của Remember Me cookie (ngày) */
+    private const REMEMBER_ME_DAYS = 30;
+
     private User $userModel;
 
     public function __construct()
@@ -40,16 +40,13 @@ class LoginController
     }
 
     /**
-     * Redirect trang chủ về login hoặc dashboard.
+     * Redirect trang chủ về login hoặc dashboard/onboarding.
      * GET /
-     *
-     * @param  Request $request
-     * @return void
      */
     public function index(Request $request): void
     {
-        if (Session::isLoggedIn()) {
-            Response::redirect('/dashboard');
+        if (Session::isLoggedIn() || $this->attemptAutoLogin($request)) {
+            $this->redirectBasedOnWorkspace();
         }
         Response::redirect('/login');
     }
@@ -57,14 +54,12 @@ class LoginController
     /**
      * Hiển thị form đăng nhập.
      * GET /login
-     *
-     * @param  Request $request
-     * @return void
      */
     public function showForm(Request $request): void
     {
-        if (Session::isLoggedIn()) {
-            Response::redirect('/dashboard');
+        // Kiểm tra session hiện tại hoặc thử auto-login qua Remember Me cookie
+        if (Session::isLoggedIn() || $this->attemptAutoLogin($request)) {
+            $this->redirectBasedOnWorkspace();
         }
 
         Response::view('auth/login', [
@@ -79,9 +74,6 @@ class LoginController
     /**
      * Xử lý submit form đăng nhập.
      * POST /login
-     *
-     * @param  Request $request
-     * @return void
      */
     public function login(Request $request): void
     {
@@ -97,8 +89,7 @@ class LoginController
         if ($this->isIpLocked($clientIp)) {
             Response::setFlash(
                 'error',
-                'Tài khoản tạm thời bị khóa do đăng nhập sai nhiều lần. '
-                . 'Vui lòng thử lại sau ' . self::LOCK_MINUTES . ' phút.'
+                'Tài khoản tạm thời bị khóa do đăng nhập sai nhiều lần. Vui lòng thử lại sau ' . self::LOCK_MINUTES . ' phút.'
             );
             Response::setOldInput(['email' => $email]);
             Response::redirect('/login');
@@ -116,7 +107,6 @@ class LoginController
         $user = $this->userModel->findByEmail($email);
 
         if (!$user) {
-            // Không tiết lộ email có tồn tại hay không (chống user enumeration)
             $this->recordFailedAttempt($clientIp, $email);
             Response::setFlash('error', 'Email hoặc mật khẩu không đúng.');
             Response::setOldInput(['email' => $email]);
@@ -127,8 +117,7 @@ class LoginController
         if (!(bool) $user['is_verified']) {
             Response::setFlash(
                 'error',
-                'Tài khoản chưa được xác minh. Kiểm tra email hoặc '
-                . '<a href="/resend-verification" class="underline">nhấn đây để gửi lại</a>.'
+                'Tài khoản chưa được xác minh. Kiểm tra email hoặc <a href="/resend-verification" class="underline">nhấn đây để gửi lại</a>.'
             );
             Response::setOldInput(['email' => $email]);
             Response::redirect('/login');
@@ -138,7 +127,6 @@ class LoginController
         if (!password_verify($password, $user['password'])) {
             $this->recordFailedAttempt($clientIp, $email);
 
-            // Cảnh báo nếu sắp bị lock
             $remainingAttempts = $this->getRemainingAttempts($clientIp);
             $message = 'Email hoặc mật khẩu không đúng.';
             if ($remainingAttempts === 1) {
@@ -153,11 +141,9 @@ class LoginController
         // Bước 7: Đăng nhập thành công — xóa failed attempts
         $this->clearFailedAttempts($clientIp);
 
-        // Lấy workspace đầu tiên làm active
-        $workspaces       = $this->userModel->getWorkspaces((int) $user['id']);
+        $workspaces        = $this->userModel->getWorkspaces((int) $user['id']);
         $activeWorkspaceId = !empty($workspaces) ? (int) $workspaces[0]['id'] : null;
 
-        // Session::loginUser() tự gọi regenerate() (TDD Phần 4.6)
         Session::loginUser(
             [
                 'id'    => $user['id'],
@@ -172,19 +158,19 @@ class LoginController
             $this->setRememberMeCookie((int) $user['id'], $request);
         }
 
-        // Bước 9: Redirect về intended URL hoặc dashboard
+        // Bước 9: Redirect
+        if ($activeWorkspaceId === null) {
+            Response::redirect('/onboarding');
+        }
+
         $intendedUrl = Session::get('intended_url', '/dashboard');
         Session::remove('intended_url');
-
         Response::redirect($intendedUrl);
     }
 
     /**
      * Đăng xuất.
      * POST /logout
-     *
-     * @param  Request $request
-     * @return void
      */
     public function logout(Request $request): void
     {
@@ -198,7 +184,7 @@ class LoginController
         }
 
         // Xóa cookie
-        setcookie('remember_token', '', time() - 3600, '/', '', true, true);
+        $this->clearRememberMeCookie();
 
         // Hủy session
         Session::destroy();
@@ -208,135 +194,72 @@ class LoginController
     }
 
     // ----------------------------------------------------------------
-    // Private Helpers – Rate Limiting
+    // Private Helpers – Tích hợp Remember Me & Auto Login
     // ----------------------------------------------------------------
 
     /**
-     * Kiểm tra IP có đang bị lock không.
-     *
-     * @param  string $ip
-     * @return bool
+     * Thử auto-login bằng Remember Me cookie.
      */
-    private function isIpLocked(string $ip): bool
+    private function attemptAutoLogin(Request $request): bool
     {
-        try {
-            $db   = Database::getInstance();
-            $stmt = $db->prepare(
-                'SELECT COUNT(*) as attempts
-                 FROM login_attempts
-                 WHERE ip_address = :ip
-                   AND attempted_at > DATE_SUB(NOW(), INTERVAL :minutes MINUTE)'
-            );
-            $stmt->execute([
-                ':ip'      => $ip,
-                ':minutes' => self::LOCK_MINUTES,
-            ]);
-            $result = $stmt->fetch();
-            return (int) $result['attempts'] >= self::MAX_ATTEMPTS;
-        } catch (\PDOException $e) {
-            error_log('[LoginController] Rate limit check failed: ' . $e->getMessage());
-            return false; // Fail open
+        $rawToken = $_COOKIE['remember_token'] ?? null;
+        if (!$rawToken) {
+            return false;
         }
-    }
 
-    /**
-     * Lấy số lần thử còn lại trước khi bị lock.
-     *
-     * @param  string $ip
-     * @return int
-     */
-    private function getRemainingAttempts(string $ip): int
-    {
-        try {
-            $db   = Database::getInstance();
-            $stmt = $db->prepare(
-                'SELECT COUNT(*) as attempts
-                 FROM login_attempts
-                 WHERE ip_address = :ip
-                   AND attempted_at > DATE_SUB(NOW(), INTERVAL :minutes MINUTE)'
-            );
-            $stmt->execute([':ip' => $ip, ':minutes' => self::LOCK_MINUTES]);
-            $result = $stmt->fetch();
-            return max(0, self::MAX_ATTEMPTS - (int) $result['attempts']);
-        } catch (\PDOException $e) {
-            return self::MAX_ATTEMPTS;
-        }
-    }
+        $tokenHash = hash('sha256', $rawToken);
 
-    /**
-     * Ghi lại một lần login thất bại.
-     *
-     * @param  string $ip
-     * @param  string $email
-     * @return void
-     */
-    private function recordFailedAttempt(string $ip, string $email): void
-    {
         try {
-            // Lazy cleanup: xóa attempts cũ của IP này trước khi thêm mới
             $db = Database::getInstance();
-            $db->prepare(
-                'DELETE FROM login_attempts
-                 WHERE ip_address = :ip
-                   AND attempted_at < DATE_SUB(NOW(), INTERVAL 1 HOUR)'
-            )->execute([':ip' => $ip]);
-
-            $db->prepare(
-                'INSERT INTO login_attempts (ip_address, email_attempted, attempted_at)
-                 VALUES (:ip, :email, NOW())'
-            )->execute([':ip' => $ip, ':email' => $email]);
-
-        } catch (\PDOException $e) {
-            error_log('[LoginController] Record attempt failed: ' . $e->getMessage());
-        }
-    }
-
-    /**
-     * Xóa tất cả failed attempts của IP sau login thành công.
-     *
-     * @param  string $ip
-     * @return void
-     */
-    private function clearFailedAttempts(string $ip): void
-    {
-        try {
-            $db   = Database::getInstance();
             $stmt = $db->prepare(
-                'DELETE FROM login_attempts WHERE ip_address = :ip'
+                'SELECT u.id, u.name, u.email, u.is_verified, u.deleted_at
+                 FROM user_tokens ut
+                 JOIN users u ON u.id = ut.user_id
+                 WHERE ut.token_hash = :token_hash
+                   AND ut.expires_at > NOW()
+                 LIMIT 1'
             );
-            $stmt->execute([':ip' => $ip]);
+            $stmt->execute([':token_hash' => $tokenHash]);
+            $user = $stmt->fetch();
+
+            // Nếu token không tồn tại, hết hạn, hoặc tài khoản có vấn đề
+            if (!$user || $user['deleted_at'] !== null || !(bool) $user['is_verified']) {
+                $this->clearRememberMeCookie();
+                return false;
+            }
+
+            // Hợp lệ -> Đăng nhập tự động
+            $workspaces        = $this->userModel->getWorkspaces((int) $user['id']);
+            $activeWorkspaceId = !empty($workspaces) ? (int) $workspaces[0]['id'] : null;
+
+            Session::loginUser(
+                [
+                    'id'    => $user['id'],
+                    'name'  => $user['name'],
+                    'email' => $user['email'],
+                ],
+                $activeWorkspaceId
+            );
+
+            return true;
+
         } catch (\PDOException $e) {
-            error_log('[LoginController] Clear attempts failed: ' . $e->getMessage());
+            error_log('[LoginController] Auto-login failed: ' . $e->getMessage());
+            return false;
         }
     }
 
-    // ----------------------------------------------------------------
-    // Private Helpers – Remember Me
-    // ----------------------------------------------------------------
-
-    /**
-     * Tạo Remember Me cookie và lưu token hash vào DB.
-     *
-     * @param  int     $userId
-     * @param  Request $request
-     * @return void
-     */
     private function setRememberMeCookie(int $userId, Request $request): void
     {
-        // Sinh raw token bằng CSPRNG
         $rawToken  = bin2hex(random_bytes(32));
-
-        // Lưu hash vào DB, không lưu raw (TDD Phần 1.4.1)
         $tokenHash = hash('sha256', $rawToken);
-        $expiresAt = date('Y-m-d H:i:s', time() + (REMEMBER_ME_DAYS * 86400));
+        $expiresAt = date('Y-m-d H:i:s', time() + (self::REMEMBER_ME_DAYS * 86400));
 
         try {
             $db   = Database::getInstance();
             $stmt = $db->prepare(
-                'INSERT INTO user_tokens
-                    (user_id, token_hash, expires_at, ip_address, user_agent)
-                 VALUES
-                    (:user_id, :token_hash, :expires_at, :ip, :ua)'
+                'INSERT INTO user_tokens (user_id, token_hash, expires_at, ip_address, user_agent)
+                 VALUES (:user_id, :token_hash, :expires_at, :ip, :ua)'
             );
             $stmt->execute([
                 ':user_id'    => $userId,
@@ -347,44 +270,119 @@ class LoginController
             ]);
         } catch (\PDOException $e) {
             error_log('[LoginController] Remember Me DB insert failed: ' . $e->getMessage());
-            return; // Không crash — Remember Me là optional feature
+            return; 
         }
 
-        // Set cookie (TDD Phần 4.6: HttpOnly, Secure, SameSite=Strict)
         $isSecure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
 
-        setcookie(
-            'remember_token',
-            $rawToken,
-            [
-                'expires'  => time() + (REMEMBER_ME_DAYS * 86400),
-                'path'     => '/',
-                'domain'   => '',
-                'secure'   => $isSecure,
-                'httponly' => true,
-                'samesite' => 'Strict',
-            ]
-        );
+        setcookie('remember_token', $rawToken, [
+            'expires'  => time() + (self::REMEMBER_ME_DAYS * 86400),
+            'path'     => '/',
+            'domain'   => '',
+            'secure'   => $isSecure,
+            'httponly' => true,
+            'samesite' => 'Strict',
+        ]);
     }
 
-    /**
-     * Revoke Remember Me token trong DB khi logout.
-     *
-     * @param  string $rawToken
-     * @return void
-     */
     private function revokeRememberMeToken(string $rawToken): void
     {
         $tokenHash = hash('sha256', $rawToken);
-
         try {
             $db   = Database::getInstance();
-            $stmt = $db->prepare(
-                'DELETE FROM user_tokens WHERE token_hash = :token_hash'
-            );
+            $stmt = $db->prepare('DELETE FROM user_tokens WHERE token_hash = :token_hash');
             $stmt->execute([':token_hash' => $tokenHash]);
         } catch (\PDOException $e) {
             error_log('[LoginController] Revoke token failed: ' . $e->getMessage());
+        }
+    }
+
+    private function clearRememberMeCookie(): void
+    {
+        $isSecure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
+        setcookie('remember_token', '', [
+            'expires'  => time() - 3600,
+            'path'     => '/',
+            'domain'   => '',
+            'secure'   => $isSecure,
+            'httponly' => true,
+            'samesite' => 'Strict',
+        ]);
+    }
+
+    private function redirectBasedOnWorkspace(): void
+    {
+        $activeWorkspaceId = Session::get('active_workspace_id');
+        if (!$activeWorkspaceId) {
+            Response::redirect('/onboarding');
+        }
+
+        $intendedUrl = Session::get('intended_url', '/dashboard');
+        Session::remove('intended_url');
+        Response::redirect($intendedUrl);
+    }
+
+    // ----------------------------------------------------------------
+    // Private Helpers – Rate Limiting
+    // ----------------------------------------------------------------
+
+    private function isIpLocked(string $ip): bool
+    {
+        try {
+            $db   = Database::getInstance();
+            $stmt = $db->prepare(
+                'SELECT COUNT(*) as attempts FROM login_attempts
+                 WHERE ip_address = :ip AND attempted_at > DATE_SUB(NOW(), INTERVAL :minutes MINUTE)'
+            );
+            $stmt->execute([':ip' => $ip, ':minutes' => self::LOCK_MINUTES]);
+            $result = $stmt->fetch();
+            return (int) $result['attempts'] >= self::MAX_ATTEMPTS;
+        } catch (\PDOException $e) {
+            error_log('[LoginController] Rate limit check failed: ' . $e->getMessage());
+            return false;
+        }
+    }
+
+    private function getRemainingAttempts(string $ip): int
+    {
+        try {
+            $db   = Database::getInstance();
+            $stmt = $db->prepare(
+                'SELECT COUNT(*) as attempts FROM login_attempts
+                 WHERE ip_address = :ip AND attempted_at > DATE_SUB(NOW(), INTERVAL :minutes MINUTE)'
+            );
+            $stmt->execute([':ip' => $ip, ':minutes' => self::LOCK_MINUTES]);
+            $result = $stmt->fetch();
+            return max(0, self::MAX_ATTEMPTS - (int) $result['attempts']);
+        } catch (\PDOException $e) {
+            return self::MAX_ATTEMPTS;
+        }
+    }
+
+    private function recordFailedAttempt(string $ip, string $email): void
+    {
+        try {
+            $db = Database::getInstance();
+            $db->prepare(
+                'DELETE FROM login_attempts WHERE ip_address = :ip AND attempted_at < DATE_SUB(NOW(), INTERVAL 1 HOUR)'
+            )->execute([':ip' => $ip]);
+
+            $db->prepare(
+                'INSERT INTO login_attempts (ip_address, email_attempted, attempted_at) VALUES (:ip, :email, NOW())'
+            )->execute([':ip' => $ip, ':email' => $email]);
+        } catch (\PDOException $e) {
+            error_log('[LoginController] Record attempt failed: ' . $e->getMessage());
+        }
+    }
+
+    private function clearFailedAttempts(string $ip): void
+    {
+        try {
+            $db   = Database::getInstance();
+            $stmt = $db->prepare('DELETE FROM login_attempts WHERE ip_address = :ip');
+            $stmt->execute([':ip' => $ip]);
+        } catch (\PDOException $e) {
+            error_log('[LoginController] Clear attempts failed: ' . $e->getMessage());
         }
     }
 }
