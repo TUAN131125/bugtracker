@@ -16,14 +16,14 @@ class Workspace
     public function create(array $data): int
     {
         $stmt = $this->db->prepare("
-            INSERT INTO workspaces (name, slug, description, owner_id, created_at)
-            VALUES (:name, :slug, :description, :owner_id, NOW())
+            INSERT INTO workspaces (name, slug, description, owner_user_id, created_at)
+            VALUES (:name, :slug, :description, :owner_user_id, NOW())
         ");
         $stmt->execute([
-            'name'        => $data['name'],
-            'slug'        => $data['slug'],
-            'description' => $data['description'] ?? null,
-            'owner_id'    => $data['owner_id'],
+            'name'          => $data['name'],
+            'slug'          => $data['slug'],
+            'description'   => $data['description'] ?? null,
+            'owner_user_id' => $data['owner_id'],
         ]);
         return (int) $this->db->lastInsertId();
     }

@@ -17,9 +17,9 @@ class WorkspaceInvitation
     {
         $stmt = $this->db->prepare("
             INSERT INTO workspace_invitations
-                (workspace_id, email, role, token, invited_by, is_pre_registration, expires_at, created_at)
+                (workspace_id, email, role, token, invited_by, status, is_pre_registered, expires_at, created_at)
             VALUES
-                (:ws_id, :email, :role, :token, :invited_by, :is_pre_reg, DATE_ADD(NOW(), INTERVAL 7 DAY), NOW())
+                (:ws_id, :email, :role, :token, :invited_by, 'pending', :is_pre_reg, DATE_ADD(NOW(), INTERVAL 7 DAY), NOW())
         ");
         return $stmt->execute([
             'ws_id'      => $wsId,
@@ -43,7 +43,9 @@ class WorkspaceInvitation
     public function accept(string $token): bool
     {
         $stmt = $this->db->prepare("
-            UPDATE workspace_invitations SET accepted_at = NOW() WHERE token = ?
+            UPDATE workspace_invitations
+            SET status = 'accepted', used_at = NOW()
+            WHERE token = ?
         ");
         return $stmt->execute([$token]);
     }
@@ -52,7 +54,7 @@ class WorkspaceInvitation
     {
         $stmt = $this->db->prepare("
             SELECT * FROM workspace_invitations
-            WHERE workspace_id = ? AND accepted_at IS NULL AND expires_at > NOW()
+            WHERE workspace_id = ? AND status = 'pending' AND expires_at > NOW()
             ORDER BY created_at DESC
         ");
         $stmt->execute([$wsId]);
