@@ -1,14 +1,14 @@
 <?php
-// /app/Controllers/Dashboard/DashboardController.php
 
 declare(strict_types=1);
 
 namespace App\Controllers\Dashboard;
 
+use PDO;
+use App\Core\Database;
 use App\Core\Request;
 use App\Core\Response;
-use App\Core\Database;
-use App\Core\Logger;
+use App\Core\Session;
 
 /**
  * DashboardController
@@ -21,43 +21,46 @@ use App\Core\Logger;
  *
  * @author  Dev 1
  * @version 1.0.0
+ * @see     Task Assignment v1.0.0 – D1-028, Phần 5.1 (Interface Contract)
  */
 class DashboardController
 {
-    private \PDO $db;
+    private PDO $db;
 
     public function __construct()
     {
-        // Database singleton – không tạo connection mới mỗi lần gọi
         $this->db = Database::getInstance();
     }
 
     /**
-     * index()
-     *
      * Entry point duy nhất của Dashboard.
      * Gom tất cả aggregate queries vào đây, truyền data cho View.
      *
-     * Route: GET /dashboard (đăng ký trong routes.php)
-     * Middleware chain: AuthMiddleware → WorkspaceMiddleware → OnboardingMiddleware
+     * Route: GET /dashboard
+     * Middleware chain: AuthMiddleware → OnboardingMiddleware → WorkspaceMiddleware
      *
+     * @param  Request $request  Inject từ Router.
      * @return void
      */
-    public function index(): void
+    public function index(Request $request): void
     {
         // ----------------------------------------------------------------
-        // 1. Lấy context từ session (đã được WorkspaceMiddleware validate)
+        // 1. Lấy context từ Session class (đã validate bởi WorkspaceMiddleware)
+        //    KHÔNG truy cập $_SESSION trực tiếp – dùng Session abstraction layer.
         // ----------------------------------------------------------------
-        $workspaceId = (int) ($_SESSION['active_workspace_id'] ?? 0);
-        $userId      = (int) ($_SESSION['user_id'] ?? 0);
+        $workspace_id = Session::getActiveWorkspaceId();
+        $user_id      = Session::getUserId();
 
         // Guard: Middleware phải đảm bảo 2 giá trị này hợp lệ.
-        // Nếu vẫn = 0 tại đây → có lỗi middleware, log và redirect.
-        if ($workspaceId === 0 || $userId === 0) {
-            Logger::error(
-                'DashboardController::index() called with invalid session',
-                'DashboardController',
-                debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 3)
+        // Nếu vẫn null tại đây → có lỗi middleware, log và redirect.
+        if (!$workspace_id || !$user_id) {
+            // TODO: Replace bằng Logger::error() sau khi D1-021 hoàn thành (Ngày 3)
+            error_log(
+                '[DashboardController] Invalid session — workspace_id or user_id is null. '
+                . 'Session data: ' . json_encode([
+                    'workspace_id' => $workspace_id,
+                    'user_id'      => $user_id,
+                ])
             );
             Response::redirect('/onboarding');
             return;
@@ -66,92 +69,86 @@ class DashboardController
         try {
             // ----------------------------------------------------------------
             // 2. Query tổng hợp Issue theo status (cho Donut Chart)
-            //    Một query duy nhất, GROUP BY status
-            //    Index (workspace_id, status) đảm bảo không full table scan
             // ----------------------------------------------------------------
-            $statusCounts = $this->getIssueStatusCounts($workspaceId);
+            $status_counts = $this->getIssueStatusCounts($workspace_id);
 
             // ----------------------------------------------------------------
             // 3. Query số Issue theo từng Project (cho Bar Chart)
-            //    JOIN projects để lấy tên project kèm theo count
             // ----------------------------------------------------------------
-            $projectCounts = $this->getIssueCountByProject($workspaceId);
+            $project_counts = $this->getIssueCountByProject($workspace_id);
 
             // ----------------------------------------------------------------
-            // 4. Query Issue được giao cho user hiện tại (Widget "Của tôi")
-            //    Chỉ lấy 5 issue mới nhất, status != closed và != wont_fix
+            // 4. Query Issue được giao cho user hiện tại
             // ----------------------------------------------------------------
-            $myIssues = $this->getMyAssignedIssues($workspaceId, $userId);
+            $my_issues = $this->getMyAssignedIssues($workspace_id, $user_id);
 
             // ----------------------------------------------------------------
-            // 5. Query Activity Log gần nhất (Widget "Hoạt động")
-            //    JOIN users để lấy tên người thực hiện
-            //    Giới hạn 10 bản ghi, index (workspace_id, created_at)
+            // 5. Query Activity Log gần nhất
             // ----------------------------------------------------------------
-            $recentActivity = $this->getRecentActivity($workspaceId);
+            $recent_activity = $this->getRecentActivity($workspace_id);
 
             // ----------------------------------------------------------------
-            // 6. Đếm notification chưa đọc (badge trên bell icon)
-            //    Index (user_id, is_read) đảm bảo query này rất nhanh
+            // 6. Đếm notification chưa đọc
             // ----------------------------------------------------------------
-            $unreadNotifCount = $this->getUnreadNotificationCount($userId, $workspaceId);
+            $unread_notif_count = $this->getUnreadNotificationCount($user_id, $workspace_id);
 
             // ----------------------------------------------------------------
-            // 7. Gom thành $chart_data theo đúng contract với Dev 3 (Phần 5.1)
-            //    Dev 3 sẽ json_encode($chart_data) để Chart.js đọc
+            // 7. Gom chart_data theo contract Dev 3 (Task Assignment Phần 5.1)
             // ----------------------------------------------------------------
-            $chartData = [
-                'status_counts'  => $statusCounts,
-                'project_counts' => $projectCounts,
+            $chart_data = [
+                'status_counts'  => $status_counts,
+                'project_counts' => $project_counts,
             ];
 
             // ----------------------------------------------------------------
-            // 8. Render view – truyền đúng tên biến theo contract Phần 5.1
+            // 8. Render view – tên biến khớp chính xác với contract Phần 5.1
             // ----------------------------------------------------------------
             Response::view('dashboard/index', [
                 'pageId'             => 'dashboard',
                 'pageTitle'          => 'Dashboard',
-                'chart_data'         => $chartData,
-                'my_issues'          => $myIssues,
-                'recent_activity'    => $recentActivity,
-                'unread_notif_count' => $unreadNotifCount,
+                'chart_data'         => $chart_data,
+                'my_issues'          => $my_issues,
+                'recent_activity'    => $recent_activity,
+                'unread_notif_count' => $unread_notif_count,
             ]);
 
         } catch (\PDOException $e) {
-            // Ghi log lỗi DB, KHÔNG lộ thông tin ra màn hình
-            Logger::error(
-                'Dashboard query failed: ' . $e->getMessage(),
-                'DashboardController',
-                $e->getTrace()
-            );
-            // Dev 3 đã chuẩn bị trang 500 thân thiện
-            Response::view('errors/500', ['pageId' => 'error', 'pageTitle' => 'Lỗi hệ thống']);
+            // TODO: Replace bằng Logger::error() sau khi D1-021 hoàn thành (Ngày 3)
+            error_log(sprintf(
+                '[DashboardController] Query failed | Workspace: %d | User: %d | Error: %s',
+                $workspace_id,
+                $user_id,
+                $e->getMessage()
+            ));
+
+            Response::view('errors/500', [
+                'pageId'    => 'error',
+                'pageTitle' => 'Lỗi hệ thống',
+            ], 500);
         }
     }
 
     // ================================================================
-    // PRIVATE METHODS – Mỗi method = 1 nhóm query có liên quan
-    // Tách ra để dễ test độc lập và dễ đọc
+    // PRIVATE METHODS
     // ================================================================
 
     /**
      * Lấy số lượng Issue theo từng trạng thái trong Workspace.
      *
-     * SQL pattern: GROUP BY status → một query, nhiều row kết quả.
-     * Kết quả trả về dạng array key-value để Dev 3 dễ dùng với Chart.js:
+     * Kết quả:
      * [
-     *   ['status' => 'open',        'count' => 12, 'label' => 'Mới'],
-     *   ['status' => 'in_progress', 'count' => 5,  'label' => 'Đang xử lý'],
+     *   ['status' => 'open', 'count' => 12, 'label' => 'Mới'],
      *   ...
      * ]
      *
-     * @param int $workspaceId
-     * @return array
+     * @param  int   $workspace_id
+     * @return array<int, array<string, mixed>>
      */
-    private function getIssueStatusCounts(int $workspaceId): array
+    private function getIssueStatusCounts(int $workspace_id): array
     {
-        // Map status DB value → label tiếng Việt (đồng bộ với ViewLayer Guide Appendix C)
-        $labelMap = [
+        // Map status DB value → label tiếng Việt
+        // Đồng bộ với ViewLayer Guide Appendix C (STATUS_LABELS_VI)
+        $label_map = [
             'open'        => 'Mới',
             'in_triage'   => 'Đang xem xét',
             'in_progress' => 'Đang xử lý',
@@ -168,17 +165,20 @@ class DashboardController
              WHERE workspace_id = :workspace_id
                AND deleted_at IS NULL
              GROUP BY status
-             ORDER BY FIELD(status, 'open','in_triage','in_progress','resolved','closed','reopened','wont_fix','duplicate')"
+             ORDER BY FIELD(
+                 status,
+                 'open','in_triage','in_progress','resolved',
+                 'closed','reopened','wont_fix','duplicate'
+             )"
         );
-        $stmt->execute([':workspace_id' => $workspaceId]);
+        $stmt->execute([':workspace_id' => $workspace_id]);
         $rows = $stmt->fetchAll();
 
-        // Gắn label tiếng Việt để Dev 3 render trực tiếp, không cần xử lý thêm
-        return array_map(function (array $row) use ($labelMap): array {
+        return array_map(function (array $row) use ($label_map): array {
             return [
                 'status' => $row['status'],
                 'count'  => (int) $row['count'],
-                'label'  => $labelMap[$row['status']] ?? $row['status'],
+                'label'  => $label_map[$row['status']] ?? $row['status'],
             ];
         }, $rows);
     }
@@ -186,20 +186,16 @@ class DashboardController
     /**
      * Lấy số lượng Issue theo từng Project (cho Bar Chart).
      *
-     * JOIN projects để lấy project name và key.
-     * Chỉ lấy project đang active (không archive).
-     * Chỉ tính issue chưa bị soft delete.
-     *
      * Kết quả:
      * [
      *   ['project_name' => 'BugTracker', 'project_key' => 'BT', 'count' => 42],
      *   ...
      * ]
      *
-     * @param int $workspaceId
-     * @return array
+     * @param  int   $workspace_id
+     * @return array<int, array<string, mixed>>
      */
-    private function getIssueCountByProject(int $workspaceId): array
+    private function getIssueCountByProject(int $workspace_id): array
     {
         $stmt = $this->db->prepare(
             "SELECT p.name AS project_name,
@@ -216,11 +212,13 @@ class DashboardController
              GROUP BY p.id, p.name, p.key
              ORDER BY count DESC
              LIMIT 10"
-            // Giới hạn 10 project trên Bar Chart – tránh chart quá chật
         );
+
         $stmt->execute([
-            ':workspace_id_issues'   => $workspaceId,
-            ':workspace_id_projects' => $workspaceId,
+            // PDO không cho phép dùng cùng named param 2 lần trong 1 query,
+            // phải dùng 2 tên khác nhau dù cùng giá trị.
+            ':workspace_id_issues'   => $workspace_id,
+            ':workspace_id_projects' => $workspace_id,
         ]);
 
         return array_map(function (array $row): array {
@@ -235,9 +233,6 @@ class DashboardController
     /**
      * Lấy 5 Issue mới nhất được giao cho user hiện tại.
      *
-     * Chỉ hiện issue đang "cần làm" (không lấy closed/wont_fix/duplicate).
-     * JOIN projects để lấy project key (dùng hiển thị Issue ID dạng BT-001).
-     *
      * Kết quả:
      * [
      *   [
@@ -245,17 +240,17 @@ class DashboardController
      *     'title'        => 'Login button broken',
      *     'status'       => 'in_progress',
      *     'priority'     => 'urgent',
+     *     'severity'     => 'critical',
      *     'project_name' => 'BugTracker',
      *     'updated_at'   => '2026-05-10 14:30:00',
      *   ],
-     *   ...
      * ]
      *
-     * @param int $workspaceId
-     * @param int $userId
-     * @return array
+     * @param  int   $workspace_id
+     * @param  int   $user_id
+     * @return array<int, array<string, mixed>>
      */
-    private function getMyAssignedIssues(int $workspaceId, int $userId): array
+    private function getMyAssignedIssues(int $workspace_id, int $user_id): array
     {
         $stmt = $this->db->prepare(
             "SELECT i.issue_key,
@@ -276,39 +271,37 @@ class DashboardController
                FIELD(i.priority, 'urgent','high','medium','low'),
                i.updated_at DESC
              LIMIT 5"
-            // Sort: issue urgent + mới update lên đầu
         );
         $stmt->execute([
-            ':workspace_id' => $workspaceId,
-            ':user_id'      => $userId,
+            ':workspace_id' => $workspace_id,
+            ':user_id'      => $user_id,
         ]);
 
         return $stmt->fetchAll();
     }
 
     /**
-     * Lấy 10 hoạt động gần nhất trong Workspace (Activity Log).
-     *
-     * JOIN users để lấy tên người thực hiện.
-     * Index (workspace_id, created_at DESC) trên activity_logs đảm bảo query nhanh.
+     * Lấy 10 hoạt động gần nhất trong Workspace.
      *
      * Kết quả:
      * [
      *   [
      *     'actor_name'  => 'Nguyen Van A',
+     *     'avatar_path' => '/storage/...',
      *     'action_type' => 'issue_status_changed',
+     *     'entity_type' => 'issue',
+     *     'entity_id'   => 12,
      *     'metadata'    => '{"issue_key":"BT-001","from":"open","to":"in_progress"}',
      *     'created_at'  => '2026-05-10 13:00:00',
      *   ],
-     *   ...
      * ]
      *
-     * NOTE: metadata là JSON string – Dev 3 dùng json_decode() khi render
+     * NOTE: metadata là JSON string – Dev 3 dùng JSON.parse() khi render.
      *
-     * @param int $workspaceId
-     * @return array
+     * @param  int   $workspace_id
+     * @return array<int, array<string, mixed>>
      */
-    private function getRecentActivity(int $workspaceId): array
+    private function getRecentActivity(int $workspace_id): array
     {
         $stmt = $this->db->prepare(
             "SELECT u.name   AS actor_name,
@@ -324,22 +317,20 @@ class DashboardController
              ORDER BY al.created_at DESC
              LIMIT 10"
         );
-        $stmt->execute([':workspace_id' => $workspaceId]);
+        $stmt->execute([':workspace_id' => $workspace_id]);
 
         return $stmt->fetchAll();
     }
 
     /**
      * Đếm số notification chưa đọc của user trong workspace.
+     * Index (user_id, is_read) đảm bảo query siêu nhanh.
      *
-     * Index (user_id, is_read) đảm bảo query này siêu nhanh dù bảng lớn.
-     * Được gọi mỗi page load – phải tối ưu tuyệt đối.
-     *
-     * @param int $userId
-     * @param int $workspaceId
+     * @param  int $user_id
+     * @param  int $workspace_id
      * @return int
      */
-    private function getUnreadNotificationCount(int $userId, int $workspaceId): int
+    private function getUnreadNotificationCount(int $user_id, int $workspace_id): int
     {
         $stmt = $this->db->prepare(
             "SELECT COUNT(*) AS total
@@ -349,8 +340,8 @@ class DashboardController
                AND is_read      = 0"
         );
         $stmt->execute([
-            ':user_id'      => $userId,
-            ':workspace_id' => $workspaceId,
+            ':user_id'      => $user_id,
+            ':workspace_id' => $workspace_id,
         ]);
 
         return (int) ($stmt->fetch()['total'] ?? 0);

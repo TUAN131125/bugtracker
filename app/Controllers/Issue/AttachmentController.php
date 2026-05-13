@@ -1,11 +1,11 @@
 <?php
-// /app/Controllers/Issue/AttachmentController.php
-// Phiên bản đầy đủ – bao gồm store(), serve(), destroy()
 
 declare(strict_types=1);
 
 namespace App\Controllers\Issue;
 
+use PDO;
+use App\Core\Database;
 use App\Core\Request;
 use App\Core\Response;
 use App\Core\Session;
@@ -15,8 +15,6 @@ use App\Services\ActivityLogService;
 use App\Models\Attachment;
 use App\Models\Issue;
 use App\Models\WorkspaceMember;
-use App\Core\Logger;
-use App\Core\Database;
 
 /**
  * AttachmentController
@@ -26,167 +24,177 @@ use App\Core\Database;
  *   serve()   – Kiểm tra quyền rồi stream file ra browser (GET)
  *   destroy() – Kiểm tra quyền rồi soft-delete + xóa file vật lý (AJAX DELETE)
  *
- * WHY tách store() thành route riêng (không chỉ upload lúc tạo Issue):
- *   SRS UC-029 cho phép upload file vào Issue đã tồn tại bất kỳ lúc nào.
- *   IssueController::store() xử lý upload inline khi TẠO Issue lần đầu.
- *   AttachmentController::store() xử lý upload BỔ SUNG sau đó.
+ * @author  Dev 1
+ * @version 1.0.1
+ * @see     SRS v1.0.0 – UC-029, UC-030
+ * @see     TDD Backend v1.0.0 – Phần 3.1 (Bảo mật thư mục), Phần 3.3
+ * @see     Task Assignment v1.0.0 – D1-026, D1-027
  */
 class AttachmentController
 {
-    public function __construct(
-        private Request             $request,
-        private Response            $response,
-        private Session             $session,
-        private FileUploadService   $fileUploadService,
-        private RbacService         $rbacService,
-        private ActivityLogService  $activityLogService,
-        private Attachment          $attachmentModel,
-        private Issue               $issueModel,
-        private WorkspaceMember     $memberModel,
-        private Logger              $logger,
-        private Database            $db
-    ) {}
+    private PDO                $db;
+    private FileUploadService  $file_upload_service;
+    private RbacService        $rbac_service;
+    private ActivityLogService $activity_log_service;
+    private Attachment         $attachment_model;
+    private Issue              $issue_model;
+    private WorkspaceMember    $member_model;
+
+    public function __construct()
+    {
+        $this->db                   = Database::getInstance();
+
+        // FileUploadService tự khởi tạo Logger bên trong – không cần truyền argument.
+        // WHY: Nhất quán với pattern new ClassName() của toàn bộ codebase.
+        $this->file_upload_service  = new FileUploadService();
+
+        $this->rbac_service         = new RbacService();
+        $this->activity_log_service = new ActivityLogService();
+        $this->attachment_model     = new Attachment();
+        $this->issue_model          = new Issue();
+        $this->member_model         = new WorkspaceMember();
+    }
 
     // =========================================================================
     // store() – POST /issues/{issueKey}/attachments
-    // Upload file bổ sung vào Issue đã tồn tại
     // =========================================================================
 
     /**
-     * @param string $issueKey  VD: "BT-001" – từ URL parameter
+     * Upload file bổ sung vào Issue đã tồn tại.
+     *
+     * Luồng: validate request → tìm Issue → kiểm tra quyền →
+     *        normalize files → kiểm tra quota → transaction upload → log.
+     *
+     * @param  Request $request   Inject từ Router.
+     * @param  string  $issueKey  VD: "BT-001" – từ URL parameter.
+     * @return void
      */
-    public function store(string $issueKey): void
+    public function store(Request $request, string $issueKey): void
     {
-        // Đảm bảo đây là AJAX request
-        if (!$this->request->isAjax()) {
-            $this->response->json(['success' => false, 'message' => 'Invalid request.'], 400);
+        if (!$request->isAjax()) {
+            Response::json(['success' => false, 'message' => 'Invalid request.'], 400);
             return;
         }
 
-        $currentUserId     = $this->session->get('user_id');
-        $activeWorkspaceId = $this->session->get('active_workspace_id');
+        $current_user_id     = Session::getUserId();
+        $active_workspace_id = Session::getActiveWorkspaceId();
 
-        // --- Bước 1: Tìm Issue theo issueKey trong workspace đang active ---
-        $issue = $this->issueModel->findByKey($issueKey, $activeWorkspaceId);
+        // --- Bước 1: Tìm Issue ---
+        $issue = $this->issue_model->findByKey($issueKey, $active_workspace_id);
 
         if ($issue === null) {
-            $this->response->json([
+            Response::json([
                 'success' => false,
-                'message' => "Issue {$issueKey} không tồn tại."
+                'message' => "Issue {$issueKey} không tồn tại.",
             ], 404);
             return;
         }
 
-        // --- Bước 2: Kiểm tra Project có bị archived không ---
-        // WHY: SRS Phần 3.2.2 – Issue trong Project archived là read-only
+        // --- Bước 2: Kiểm tra Project archived ---
+        // Issue trong archived project là read-only (SRS Phần 3.2.2)
         if ($issue['project_status'] === 'archived') {
-            $this->response->json([
+            Response::json([
                 'success' => false,
-                'message' => 'Project đã bị archived. Không thể thêm file đính kèm.'
+                'message' => 'Project đã bị archived. Không thể thêm file đính kèm.',
             ], 403);
             return;
         }
 
         // --- Bước 3: Kiểm tra quyền upload ---
-        // Được phép: Owner, Admin, Member được giao Issue (Assignee), Reporter
-        // WHY cho Reporter upload: họ có thể cần bổ sung screenshot/log sau khi tạo Issue
-        $canUpload = $this->rbacService->canCommentOnIssue($currentUserId, $activeWorkspaceId)
-            || $issue['reporter_id'] === $currentUserId
-            || $issue['assignee_id'] === $currentUserId;
+        // Có quyền nếu: là member có quyền comment, hoặc là reporter/assignee của Issue.
+        // WHY dùng canUploadAttachment thay vì canCommentOnIssue:
+        //   canCommentOnIssue không tồn tại trong RbacService.
+        //   canUploadAttachment được định nghĩa đúng trong RbacService
+        //   theo SRS Phần 1.3 (RBAC Matrix): Owner/Admin/Member/Guest đều
+        //   có thể đính kèm file vào Issue.
+        $can_upload = $this->rbac_service->canUploadAttachment($current_user_id, $active_workspace_id)
+            || (int) $issue['reporter_id'] === $current_user_id
+            || (int) $issue['assignee_id'] === $current_user_id;
 
-        if (!$canUpload) {
-            $this->response->json([
+        if (!$can_upload) {
+            Response::json([
                 'success' => false,
-                'message' => 'Bạn không có quyền đính kèm file vào Issue này.'
+                'message' => 'Bạn không có quyền đính kèm file vào Issue này.',
             ], 403);
             return;
         }
 
-        // --- Bước 4: Lấy danh sách file từ request ---
-        $uploadedFiles = $this->request->files('attachments');
+        // --- Bước 4: Lấy và normalize files ---
+        $uploaded_files   = $request->file('attachments');
+        $normalized_files = $this->normalizeFilesArray($uploaded_files);
 
-        // Chuẩn hóa: $_FILES có thể là single file hoặc array file
-        // WHY cần normalize: PHP xử lý $_FILES['attachments'] khác nhau
-        // tùy theo input name là "attachments" hay "attachments[]"
-        $normalizedFiles = $this->normalizeFilesArray($uploadedFiles);
-
-        if (empty($normalizedFiles)) {
-            $this->response->json([
+        if (empty($normalized_files)) {
+            Response::json([
                 'success' => false,
-                'message' => 'Không có file nào được gửi lên.'
+                'message' => 'Không có file nào được gửi lên.',
             ], 400);
             return;
         }
 
-        // --- Bước 5: Kiểm tra giới hạn số lượng file hiện có của Issue ---
-        $existingCount = $this->attachmentModel->countByIssue(
-            $issue['id'],
-            $activeWorkspaceId
-        );
+        // --- Bước 5: Kiểm tra giới hạn số lượng file ---
+        // UPLOAD_MAX_FILES = 5 theo SRS UC-019, define trong config.php Section 4.
+        // WHY kiểm tra ở đây thay vì chỉ trong DB constraint:
+        //   Trả về error message rõ ràng cho user trước khi tốn I/O upload.
+        $existing_count = $this->attachment_model->countByIssue($issue['id'], $active_workspace_id);
+        $new_count      = count($normalized_files);
 
-        $newCount = count($normalizedFiles);
-
-        if (($existingCount + $newCount) > MAX_FILES_PER_ISSUE) {
-            $remaining = MAX_FILES_PER_ISSUE - $existingCount;
-            $this->response->json([
+        if (($existing_count + $new_count) > UPLOAD_MAX_FILES) {
+            $remaining = max(0, UPLOAD_MAX_FILES - $existing_count);
+            Response::json([
                 'success' => false,
                 'message' => "Issue này chỉ còn có thể đính kèm thêm {$remaining} file "
-                           . "(giới hạn " . MAX_FILES_PER_ISSUE . " file/Issue)."
+                           . '(giới hạn ' . UPLOAD_MAX_FILES . ' file/Issue).',
             ], 422);
             return;
         }
 
-        // --- Bước 6: Validate + Upload từng file trong DB transaction ---
-        // WHY transaction: Nếu file thứ 3/3 lỗi, rollback bản ghi DB của 2 file trước.
-        // File vật lý đã move vào storage sẽ được cleanup bởi Admin Storage Monitor.
-        // (Không thể "unmove" file vật lý trong transaction – đây là giới hạn của PHP)
+        // --- Bước 6: Validate + Upload trong DB transaction ---
+        // WHY transaction: file vật lý và bản ghi DB phải đồng bộ.
+        // Nếu insert DB thất bại → rollback, file vật lý đã move cần được
+        // clean up (best-effort, không critical vì file trong /storage/ không
+        // accessible từ web).
         $this->db->beginTransaction();
 
-        $savedAttachments = [];
-        $errors           = [];
+        $saved_attachments = [];
+        $errors            = [];
 
         try {
-            foreach ($normalizedFiles as $index => $file) {
+            foreach ($normalized_files as $index => $file) {
                 try {
-                    // Validate + move file vào /storage/attachments/{ws_id}/{issue_id}/
-                    $fileData = $this->fileUploadService->store(
+                    $file_data = $this->file_upload_service->store(
                         $file,
-                        $activeWorkspaceId,
+                        $active_workspace_id,
                         $issue['id']
                     );
 
-                    // Insert bản ghi vào bảng attachments
-                    $attachmentId = $this->attachmentModel->create([
-                        'workspace_id'  => $activeWorkspaceId,
+                    $attachment_id = $this->attachment_model->create([
+                        'workspace_id'  => $active_workspace_id,
                         'issue_id'      => $issue['id'],
-                        'comment_id'    => null, // Đây là attachment của Issue, không phải Comment
-                        'uploader_id'   => $currentUserId,
-                        'original_name' => $fileData['original_name'],
-                        'stored_name'   => $fileData['stored_name'],
-                        'file_path'     => $fileData['file_path'],
-                        'mime_type'     => $fileData['mime_type'],
-                        'file_size'     => $fileData['file_size'],
+                        'comment_id'    => null,
+                        'uploader_id'   => $current_user_id,
+                        'original_name' => $file_data['original_name'],
+                        'stored_name'   => $file_data['stored_name'],
+                        'file_path'     => $file_data['file_path'],
+                        'mime_type'     => $file_data['mime_type'],
+                        'file_size'     => $file_data['file_size'],
                     ]);
 
-                    // Chuẩn bị response data cho từng file thành công
-                    $savedAttachments[] = [
-                        'id'            => $attachmentId,
-                        'original_name' => $fileData['original_name'],
-                        'file_size'     => $fileData['file_size'],
-                        'mime_type'     => $fileData['mime_type'],
-                        // URL để serve file qua PHP proxy
-                        'url'           => "/files/{$activeWorkspaceId}/{$issue['id']}/{$fileData['stored_name']}",
-                        // URL thumbnail (chỉ có nếu là ảnh)
+                    $saved_attachments[] = [
+                        'id'            => $attachment_id,
+                        'original_name' => $file_data['original_name'],
+                        'file_size'     => $file_data['file_size'],
+                        'mime_type'     => $file_data['mime_type'],
+                        'url'           => "/files/{$active_workspace_id}/{$issue['id']}/{$file_data['stored_name']}",
                         'thumbnail_url' => $this->buildThumbnailUrl(
-                            $fileData['mime_type'],
-                            $activeWorkspaceId,
+                            $file_data['mime_type'],
+                            $active_workspace_id,
                             $issue['id'],
-                            $fileData['stored_name']
+                            $file_data['stored_name']
                         ),
                     ];
 
                 } catch (\RuntimeException $e) {
-                    // Ghi nhận lỗi của file này nhưng tiếp tục xử lý file khác
+                    // File này lỗi nhưng tiếp tục xử lý các file còn lại
                     $errors[] = [
                         'file'    => $file['name'] ?? "File #{$index}",
                         'message' => $e->getMessage(),
@@ -194,10 +202,10 @@ class AttachmentController
                 }
             }
 
-            // Nếu KHÔNG có file nào thành công → rollback và báo lỗi
-            if (empty($savedAttachments)) {
+            // Nếu không có file nào thành công thì rollback toàn bộ
+            if (empty($saved_attachments)) {
                 $this->db->rollBack();
-                $this->response->json([
+                Response::json([
                     'success' => false,
                     'message' => 'Không có file nào được upload thành công.',
                     'errors'  => $errors,
@@ -205,52 +213,51 @@ class AttachmentController
                 return;
             }
 
-            // Ít nhất 1 file thành công → commit
             $this->db->commit();
 
         } catch (\Throwable $e) {
             $this->db->rollBack();
-            $this->logger->error(
-                'Lỗi không mong đợi khi upload attachment: ' . $e->getMessage(),
-                'AttachmentController::store',
-                $e->getTraceAsString()
-            );
-            $this->response->json([
+
+            // TODO: Replace bằng Logger::error() sau khi D1-021 hoàn thành (Ngày 3)
+            error_log(sprintf(
+                '[AttachmentController::store] Unexpected error | Workspace: %d | Issue: %s | Error: %s',
+                $active_workspace_id,
+                $issueKey,
+                $e->getMessage()
+            ));
+
+            Response::json([
                 'success' => false,
-                'message' => 'Đã xảy ra lỗi khi xử lý file. Vui lòng thử lại.'
+                'message' => 'Đã xảy ra lỗi khi xử lý file. Vui lòng thử lại.',
             ], 500);
             return;
         }
 
         // --- Bước 7: Ghi Activity Log ---
-        // Ghi 1 log chung cho cả batch upload (không ghi từng file)
-        // WHY: Tránh spam Activity Log khi upload nhiều file cùng lúc
-        $fileCount = count($savedAttachments);
-        $this->activityLogService->log(
-            workspaceId: $activeWorkspaceId,
-            userId:      $currentUserId,
-            entityType:  'issue',
-            entityId:    $issue['id'],
-            actionType:  'attachment_added',
-            metadata:    [
+        $file_count = count($saved_attachments);
+
+        $this->activity_log_service->log(
+            $active_workspace_id,
+            $current_user_id,
+            'issue',
+            $issue['id'],
+            'attachment_added',
+            [
                 'issue_key'  => $issueKey,
-                'file_count' => $fileCount,
-                'file_names' => array_column($savedAttachments, 'original_name'),
+                'file_count' => $file_count,
+                'file_names' => array_column($saved_attachments, 'original_name'),
             ]
         );
 
-        // --- Bước 8: Trả về response ---
-        // Trả về cả file thành công và file lỗi để Dev 3 hiển thị partial success UI
-        $message = $fileCount === count($normalizedFiles)
-            ? "Đã đính kèm {$fileCount} file thành công."
-            : "Đã đính kèm {$fileCount}/{$newCount} file. "
-              . count($errors) . " file bị lỗi.";
+        // --- Bước 8: Response ---
+        $message = ($file_count === $new_count)
+            ? "Đã đính kèm {$file_count} file thành công."
+            : "Đã đính kèm {$file_count}/{$new_count} file. " . count($errors) . ' file bị lỗi.';
 
-        $this->response->json([
+        Response::json([
             'success'     => true,
             'message'     => $message,
-            'attachments' => $savedAttachments,
-            // Trả về errors của file thất bại để JS hiển thị inline
+            'attachments' => $saved_attachments,
             'errors'      => $errors,
         ]);
     }
@@ -259,39 +266,48 @@ class AttachmentController
     // serve() – GET /files/{workspaceId}/{issueId}/{filename}
     // =========================================================================
 
-    public function serve(int $workspaceId, int $issueId, string $filename): void
+    /**
+     * Stream file ra browser sau khi kiểm tra quyền.
+     *
+     * WHY lấy workspaceId từ URL thay vì session:
+     *   User có thể bookmark link file của workspace A trong khi đang active
+     *   workspace B. Validate trực tiếp với DB theo workspaceId từ URL để
+     *   chống IDOR, không dùng active_workspace_id từ session.
+     *
+     * @param  Request $request      Inject từ Router (luôn là argument đầu tiên).
+     * @param  int     $workspaceId  Từ URL parameter.
+     * @param  int     $issueId      Từ URL parameter.
+     * @param  string  $filename     Stored name của file (không phải original name).
+     * @return void
+     */
+    public function serve(Request $request, int $workspaceId, int $issueId, string $filename): void
     {
-        $currentUserId = $this->session->get('user_id');
+        $current_user_id = Session::getUserId();
 
-        // --- Kiểm tra IDOR: user phải là member của workspace trong URL ---
-        // WHY không dùng active_workspace_id từ session:
-        // URL /files/{workspaceId}/... có thể khác workspace đang active.
-        // Đây là vector tấn công IDOR điển hình – phải check trực tiếp với DB.
-        if (!$this->memberModel->isMember($workspaceId, $currentUserId)) {
-            $this->logger->warning(
-                "IDOR attempt: User {$currentUserId} truy cập file của workspace {$workspaceId}",
-                'AttachmentController::serve'
-            );
+        // Kiểm tra user có là member của workspace trong URL không.
+        // WHY không dùng RbacService ở đây: isMember() là check đơn giản nhất,
+        // đủ để authorize download — không cần check role cụ thể.
+        if (!$this->member_model->isMember($workspaceId, $current_user_id)) {
+            // TODO: Replace bằng Logger::warning() sau khi D1-021 hoàn thành (Ngày 3)
+            error_log(sprintf(
+                '[AttachmentController::serve] Unauthorized access | User: %d | Workspace: %d | File: %s',
+                $current_user_id,
+                $workspaceId,
+                $filename
+            ));
+
             http_response_code(403);
             exit('Bạn không có quyền truy cập file này.');
         }
 
-        // --- Tìm bản ghi attachment theo stored_name + workspaceId + issueId ---
-        // WHY tìm theo cả 3 trường: chống brute-force stored_name để
-        // truy cập file của workspace khác
-        $attachment = $this->attachmentModel->findByStoredName(
-            $filename,
-            $workspaceId,
-            $issueId
-        );
+        $attachment = $this->attachment_model->findByStoredName($filename, $workspaceId, $issueId);
 
         if ($attachment === null || $attachment['deleted_at'] !== null) {
             http_response_code(404);
             exit('File không tồn tại hoặc đã bị xóa.');
         }
 
-        // Delegate serve cho FileUploadService (path traversal check + readfile)
-        $this->fileUploadService->serve(
+        $this->file_upload_service->serve(
             $attachment['file_path'],
             $attachment['original_name'],
             $attachment['mime_type']
@@ -303,105 +319,117 @@ class AttachmentController
     // =========================================================================
 
     /**
-     * @param string $issueKey  VD: "BT-001" – từ URL (để verify ownership)
-     * @param int    $id        Attachment ID trong DB
+     * Soft-delete attachment sau khi kiểm tra quyền.
+     *
+     * Quyền xóa (SRS Phần 1.3 RBAC Matrix):
+     *   - Uploader: được xóa file của chính mình
+     *   - Admin / Owner: được xóa file của bất kỳ ai trong workspace
+     *
+     * WHY soft-delete DB trước, xóa file vật lý sau:
+     *   Nếu xóa file vật lý trước rồi DB fail → file mất nhưng DB còn bản ghi
+     *   → broken reference. Chiều ngược lại an toàn hơn: DB xóa xong, file
+     *   vật lý còn cũng không accessible từ web (nằm ngoài public_html).
+     *
+     * @param  Request $request   Inject từ Router.
+     * @param  string  $issueKey  VD: "BT-001".
+     * @param  int     $id        Primary key của attachment.
+     * @return void
      */
-    public function destroy(string $issueKey, int $id): void
+    public function destroy(Request $request, string $issueKey, int $id): void
     {
-        if (!$this->request->isAjax()) {
-            $this->response->json(['success' => false, 'message' => 'Invalid request.'], 400);
+        if (!$request->isAjax()) {
+            Response::json(['success' => false, 'message' => 'Invalid request.'], 400);
             return;
         }
 
-        $currentUserId     = $this->session->get('user_id');
-        $activeWorkspaceId = $this->session->get('active_workspace_id');
+        $current_user_id     = Session::getUserId();
+        $active_workspace_id = Session::getActiveWorkspaceId();
 
-        // --- Tìm attachment theo id VÀ workspace_id ---
-        // WHY thêm workspace_id: chống IDOR – user không thể xóa file
-        // của workspace khác bằng cách đoán attachment ID
-        $attachment = $this->attachmentModel->findById($id, $activeWorkspaceId);
+        // --- Bước 1: Tìm attachment và verify workspace guard ---
+        $attachment = $this->attachment_model->findById($id, $active_workspace_id);
 
         if ($attachment === null || $attachment['deleted_at'] !== null) {
-            $this->response->json([
+            Response::json([
                 'success' => false,
-                'message' => 'File không tồn tại hoặc đã bị xóa.'
+                'message' => 'File không tồn tại hoặc đã bị xóa.',
             ], 404);
             return;
         }
 
-        // --- Verify attachment thuộc đúng issue trong URL ---
-        // WHY: Ngăn user xóa attachment của Issue khác bằng cách
-        // ghép URL /issues/BT-001/attachments/{id_của_BT-002}
-        $issue = $this->issueModel->findByKey($issueKey, $activeWorkspaceId);
+        // --- Bước 2: Verify attachment thuộc đúng Issue ---
+        $issue = $this->issue_model->findByKey($issueKey, $active_workspace_id);
 
-        if ($issue === null || $attachment['issue_id'] !== $issue['id']) {
-            $this->response->json([
+        if ($issue === null || (int) $attachment['issue_id'] !== (int) $issue['id']) {
+            Response::json([
                 'success' => false,
-                'message' => 'File không thuộc Issue này.'
+                'message' => 'File không thuộc Issue này.',
             ], 403);
             return;
         }
 
-        // --- Kiểm tra quyền xóa ---
-        // Được phép: uploader chính họ, hoặc Admin/Owner
-        $isUploader     = ((int) $attachment['uploader_id']) === $currentUserId;
-        $isAdminOrOwner = $this->rbacService->canManageIssue($currentUserId, $activeWorkspaceId);
+        // --- Bước 3: Kiểm tra quyền xóa ---
+        $is_uploader       = (int) $attachment['uploader_id'] === $current_user_id;
 
-        if (!$isUploader && !$isAdminOrOwner) {
-            $this->response->json([
+        // WHY dùng canDeleteAttachment thay vì canManageIssue:
+        //   canManageIssue không tồn tại trong RbacService.
+        //   canDeleteAttachment map đúng với RBAC Matrix SRS Phần 1.3:
+        //   Admin/Owner có quyền xóa attachment của người khác.
+        $is_admin_or_owner = $this->rbac_service->canDeleteAttachment($current_user_id, $active_workspace_id);
+
+        if (!$is_uploader && !$is_admin_or_owner) {
+            Response::json([
                 'success' => false,
-                'message' => 'Bạn không có quyền xóa file này.'
+                'message' => 'Bạn không có quyền xóa file này.',
             ], 403);
             return;
         }
 
-        // --- Soft-delete bản ghi trong DB trước ---
-        // WHY soft-delete trước: nếu xóa file vật lý trước rồi DB fail,
-        // DB vẫn còn bản ghi trỏ đến file không còn tồn tại → broken link.
-        // Soft-delete trước an toàn hơn: file vật lý còn đó nhưng ẩn khỏi UI.
-        $deleted = $this->attachmentModel->softDelete($id);
+        // --- Bước 4: Soft-delete trong DB ---
+        $deleted = $this->attachment_model->softDelete($id);
 
         if (!$deleted) {
-            $this->logger->error(
-                "Soft-delete attachment {$id} thất bại",
-                'AttachmentController::destroy'
-            );
-            $this->response->json([
+            // TODO: Replace bằng Logger::error() sau khi D1-021 hoàn thành (Ngày 3)
+            error_log(sprintf(
+                '[AttachmentController::destroy] Soft-delete failed | Attachment: %d | Workspace: %d',
+                $id,
+                $active_workspace_id
+            ));
+
+            Response::json([
                 'success' => false,
-                'message' => 'Không thể xóa file. Vui lòng thử lại.'
+                'message' => 'Không thể xóa file. Vui lòng thử lại.',
             ], 500);
             return;
         }
 
-        // --- Xóa file vật lý (best-effort) ---
-        // Không rollback DB nếu xóa file fail.
-        // File vật lý còn trên disk sẽ được Admin dọn qua Storage Monitor.
-        $physicalDeleted = $this->fileUploadService->delete($attachment['file_path']);
+        // --- Bước 5: Xóa file vật lý – best-effort ---
+        $physical_deleted = $this->file_upload_service->delete($attachment['file_path']);
 
-        if (!$physicalDeleted) {
-            $this->logger->warning(
-                "Soft-delete DB thành công nhưng không xóa được file vật lý: "
-                . $attachment['file_path'],
-                'AttachmentController::destroy'
-            );
+        if (!$physical_deleted) {
+            // TODO: Replace bằng Logger::warning() sau khi D1-021 hoàn thành (Ngày 3)
+            error_log(sprintf(
+                '[AttachmentController::destroy] DB soft-deleted but physical file remains: %s',
+                $attachment['file_path']
+            ));
+            // Không return lỗi — DB đã xóa thành công, đây chỉ là orphan file
         }
 
-        // --- Ghi Activity Log ---
-        $this->activityLogService->log(
-            workspaceId: $activeWorkspaceId,
-            userId:      $currentUserId,
-            entityType:  'issue',
-            entityId:    $issue['id'],
-            actionType:  'attachment_deleted',
-            metadata:    [
+        // --- Bước 6: Ghi Activity Log ---
+        $this->activity_log_service->log(
+            $active_workspace_id,
+            $current_user_id,
+            'issue',
+            $issue['id'],
+            'attachment_deleted',
+            [
                 'issue_key'     => $issueKey,
                 'original_name' => $attachment['original_name'],
             ]
         );
 
-        $this->response->json([
+        Response::json([
             'success' => true,
-            'message' => "Đã xóa file \"{$attachment['original_name']}\"."
+            'message' => "Đã xóa file \"{$attachment['original_name']}\".",
         ]);
     }
 
@@ -412,17 +440,14 @@ class AttachmentController
     /**
      * Chuẩn hóa $_FILES array về dạng list of files nhất quán.
      *
-     * PHP trả về $_FILES theo 2 format khác nhau tùy theo HTML:
+     * PHP trả về $_FILES theo 2 format tùy theo HTML input name:
+     *   "attachments"   → single file: ['name'=>'...', 'tmp_name'=>'...', ...]
+     *   "attachments[]" → multi file transposed: ['name'=>[...], 'tmp_name'=>[...], ...]
      *
-     * Format 1 – Single file (name="attachments"):
-     *   ['name'=>'a.jpg', 'type'=>'image/jpeg', 'tmp_name'=>'/tmp/x', ...]
+     * Method này normalize cả 2 dạng về array of single-file arrays.
      *
-     * Format 2 – Multiple files (name="attachments[]"):
-     *   ['name'=>['a.jpg','b.png'], 'type'=>['image/jpeg','image/png'],
-     *    'tmp_name'=>['/tmp/x','/tmp/y'], ...]
-     *
-     * WHY cần normalize: FileUploadService::store() chỉ nhận single file array.
-     * Method này convert cả 2 format về: [['name'=>..,'tmp_name'=>..], ...]
+     * @param  mixed $files  Giá trị từ $request->file('attachments').
+     * @return array<int, array<string, mixed>>
      */
     private function normalizeFilesArray(mixed $files): array
     {
@@ -430,25 +455,22 @@ class AttachmentController
             return [];
         }
 
-        // Format 1: single file
+        // Single file format
         if (!is_array($files['tmp_name'])) {
-            // Bỏ qua nếu không có file được chọn (tmp_name rỗng)
             if ($files['error'] === UPLOAD_ERR_NO_FILE) {
                 return [];
             }
             return [$files];
         }
 
-        // Format 2: multiple files – transpose array
+        // Multi file format – transpose lại thành array of single-file arrays
         $normalized = [];
-        $count = count($files['tmp_name']);
+        $count      = count($files['tmp_name']);
 
         for ($i = 0; $i < $count; $i++) {
-            // Bỏ qua slot rỗng trong mảng
             if ($files['error'][$i] === UPLOAD_ERR_NO_FILE) {
                 continue;
             }
-
             $normalized[] = [
                 'name'     => $files['name'][$i],
                 'type'     => $files['type'][$i],
@@ -463,27 +485,31 @@ class AttachmentController
 
     /**
      * Xây dựng URL thumbnail cho ảnh.
-     * Thumbnail được tạo bởi FileUploadService::createThumbnail()
-     * với tên format: {stored_name_without_ext}_thumb.jpg
      *
-     * WHY trả về null cho non-image:
-     * Dev 3 dùng null để biết hiển thị file icon thay vì <img> tag.
+     * Trả về null cho non-image để Dev 3 hiển thị file-type icon thay vì <img>.
+     * URL trỏ đến AttachmentController::serve() – không phải URL trực tiếp đến file.
+     *
+     * @param  string $mime_type
+     * @param  int    $workspace_id
+     * @param  int    $issue_id
+     * @param  string $stored_name  Tên file gốc (không phải thumbnail name).
+     * @return string|null
      */
     private function buildThumbnailUrl(
-        string $mimeType,
-        int    $workspaceId,
-        int    $issueId,
-        string $storedName
+        string $mime_type,
+        int    $workspace_id,
+        int    $issue_id,
+        string $stored_name
     ): ?string {
-        $imageTypes = ['image/jpeg', 'image/png', 'image/gif'];
-
-        if (!in_array($mimeType, $imageTypes, true)) {
+        // WHY dùng IMAGE_MIME_TYPES từ config.php thay vì hardcode array:
+        //   Nhất quán với FileUploadService::store() – cùng whitelist.
+        if (!in_array($mime_type, IMAGE_MIME_TYPES, true)) {
             return null;
         }
 
-        $nameWithoutExt = pathinfo($storedName, PATHINFO_FILENAME);
-        $thumbName      = $nameWithoutExt . '_thumb.jpg';
+        $name_without_ext = pathinfo($stored_name, PATHINFO_FILENAME);
+        $thumb_name       = $name_without_ext . '_thumb.jpg';
 
-        return "/files/{$workspaceId}/{$issueId}/{$thumbName}";
+        return "/files/{$workspace_id}/{$issue_id}/{$thumb_name}";
     }
 }

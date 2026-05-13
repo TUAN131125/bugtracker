@@ -28,6 +28,7 @@ class EmailQueueController
 {
     private EmailQueue   $email_queue;
     private EmailService $email_service;
+    private Logger $logger;
 
     // Batch size mỗi lần retry-all để tránh timeout trên InfinityFree
     private const BATCH_SIZE = 10;
@@ -38,6 +39,7 @@ class EmailQueueController
     public function __construct()
     {
         $this->email_queue   = new EmailQueue();
+        $this->logger = new Logger();
         $this->email_service = new EmailService();
     }
 
@@ -156,7 +158,7 @@ class EmailQueueController
 
         } catch (\Exception $e) {
             $this->email_queue->markAsFailed((int) $record['id'], $e->getMessage());
-            Logger::error(
+            $this->logger->error(
                 'EmailQueue retry failed',
                 'EmailQueueController',
                 $e->getTraceAsString()

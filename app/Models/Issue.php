@@ -57,6 +57,43 @@ class Issue
         return (int) $this->db->lastInsertId();
     }
 
+    /**
+     * Tìm Issue theo issue_key dạng "BT-001" trong phạm vi một Workspace.
+     *
+     * JOIN projects để lấy project_status — AttachmentController cần kiểm tra
+     * project có bị archived không trước khi cho phép upload.
+     *
+     * @param  string $issue_key       VD: "BT-001"
+     * @param  int    $workspace_id    Bắt buộc — chống cross-workspace data leak
+     * @return array|null              null nếu không tìm thấy hoặc đã soft-deleted
+     */
+    public function findByKey(string $issue_key, int $workspace_id): ?array
+    {
+        $stmt = $this->db->prepare(
+            'SELECT i.*,
+                    p.status  AS project_status,
+                    p.key     AS project_key,
+                    p.name    AS project_name
+             FROM   issues i
+             JOIN   projects p ON p.id = i.project_id
+             WHERE  i.issue_key    = :issue_key
+               AND  i.workspace_id = :workspace_id
+               AND  i.deleted_at  IS NULL
+               AND  p.deleted_at  IS NULL
+             LIMIT  1'
+        );
+
+        $stmt->execute([
+            ':issue_key'    => $issue_key,
+            ':workspace_id' => $workspace_id,
+        ]);
+
+        $result = $stmt->fetch();
+
+        // PDO::FETCH_ASSOC trả về false nếu không có row — normalize về null
+        return $result !== false ? $result : null;
+    }
+
     public function findById(string $issueKey, int $workspaceId): array|false
     {
         $stmt = $this->db->prepare("

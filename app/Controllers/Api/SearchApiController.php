@@ -1,14 +1,14 @@
 <?php
-// /app/Controllers/Api/SearchApiController.php
 
 declare(strict_types=1);
 
 namespace App\Controllers\Api;
 
+use PDO;
+use App\Core\Database;
 use App\Core\Request;
 use App\Core\Response;
-use App\Core\Database;
-use App\Core\Logger;
+use App\Core\Session;
 
 /**
  * SearchApiController
@@ -24,9 +24,9 @@ use App\Core\Logger;
  * {
  *   "success": true,
  *   "data": {
- *     "issues":   [ { "issue_key", "title", "status", "project_name" } ],
- *     "projects": [ { "key", "name" } ],
- *     "members":  [ { "name", "email", "avatar_path" } ]
+ *     "issues":   [ { "issue_key", "title", "status", "priority", "project_name" } ],
+ *     "projects": [ { "key", "name", "status", "open_issue_count" } ],
+ *     "members":  [ { "name", "email" (masked), "avatar_path", "role" } ]
  *   }
  * }
  *
@@ -35,12 +35,18 @@ use App\Core\Logger;
  *
  * @author  Dev 1
  * @version 1.0.0
+ * @see     SRS v1.0.0 – Phần 3.4.7 (Global Search)
+ * @see     Task Assignment v1.0.0 – D1-029
  */
 class SearchApiController
 {
-    private \PDO $db;
+    private PDO $db;
 
-    // Số kết quả tối đa mỗi nhóm – theo SRS Phần 3.4.7
+    /**
+     * Số kết quả tối đa mỗi nhóm.
+     * Giá trị này được định nghĩa trong SRS v1.0.0 Phần 3.4.7.
+     * KHÔNG thay đổi mà không cập nhật SRS và global-search.js.
+     */
     private const MAX_RESULTS_PER_GROUP = 5;
 
     public function __construct()
@@ -49,43 +55,41 @@ class SearchApiController
     }
 
     /**
-     * search()
-     *
      * Thực hiện tìm kiếm Issue, Project, Member trong Workspace đang active.
      * Chỉ tìm trong phạm vi workspace_id từ SESSION – không tin query param.
      *
-     * @return void  (Output JSON trực tiếp qua Response::json())
+     * @param  Request $request  Inject từ Router (nhất quán với toàn bộ codebase).
+     * @return void
      */
-    public function search(): void
+    public function search(Request $request): void
     {
         // ----------------------------------------------------------------
-        // 1. Bắt buộc là AJAX request (kiểm tra header X-Requested-With)
-        //    Middleware không chặn được endpoint /api/* nếu gọi trực tiếp từ browser
+        // 1. Bắt buộc là AJAX request
         // ----------------------------------------------------------------
-        if (!Request::isAjax()) {
+        if (!$request->isAjax()) {
             Response::json(['success' => false, 'message' => 'Không hợp lệ'], 400);
             return;
         }
 
         // ----------------------------------------------------------------
-        // 2. Lấy workspace_id từ SESSION – đây là nguồn tin cậy duy nhất
-        //    WorkspaceMiddleware đã validate active_workspace_id hợp lệ
-        //    Tuyệt đối KHÔNG dùng $_GET['workspace_id'] trực tiếp
+        // 2. Lấy workspace_id từ Session class – nguồn tin cậy duy nhất.
+        //    WorkspaceMiddleware đã validate active_workspace_id hợp lệ.
+        //    Tuyệt đối KHÔNG dùng $_GET['workspace_id'] hay $_SESSION trực tiếp.
         // ----------------------------------------------------------------
-        $workspaceId = (int) ($_SESSION['active_workspace_id'] ?? 0);
+        $workspaceId = Session::getActiveWorkspaceId();
 
-        if ($workspaceId === 0) {
-            Response::json(['success' => false, 'message' => 'Phiên làm việc không hợp lệ'], 401);
+        if (!$workspaceId) {
+            Response::json([
+                'success' => false,
+                'message' => 'Phiên làm việc không hợp lệ',
+            ], 401);
             return;
         }
 
         // ----------------------------------------------------------------
         // 3. Validate query string q
-        //    - Phải tồn tại
-        //    - Tối thiểu 2 ký tự (theo Task Assignment D1-029)
-        //    - Tối đa 100 ký tự (chống abuse)
         // ----------------------------------------------------------------
-        $q = trim(Request::get('q') ?? '');
+        $q = trim($request->get('q', ''));
 
         if (mb_strlen($q) < 2) {
             Response::json([
@@ -104,10 +108,7 @@ class SearchApiController
         }
 
         // ----------------------------------------------------------------
-        // 4. Thực hiện tìm kiếm – 3 nhóm song song, mỗi nhóm 1 query
-        //    Dùng LIKE %q% – chấp nhận được với data volume nhỏ/vừa
-        //    trên InfinityFree (SRS Phần 3.4.7 đã confirm chiến lược này)
-        //    FULLTEXT index trên issues.title nếu cần performance tốt hơn
+        // 4. Thực hiện tìm kiếm – 3 nhóm, mỗi nhóm 1 query
         // ----------------------------------------------------------------
         try {
             $results = [
@@ -122,11 +123,14 @@ class SearchApiController
             ]);
 
         } catch (\PDOException $e) {
-            Logger::error(
-                'Search API query failed: ' . $e->getMessage(),
-                'SearchApiController',
-                $e->getTrace()
-            );
+            // TODO: Replace bằng Logger::error() sau khi D1-021 hoàn thành (Ngày 3)
+            error_log(sprintf(
+                '[SearchApiController] Search failed | Workspace: %d | Query: %s | Error: %s',
+                $workspaceId,
+                $q,
+                $e->getMessage()
+            ));
+
             Response::json([
                 'success' => false,
                 'message' => 'Tìm kiếm thất bại. Vui lòng thử lại.',
@@ -141,16 +145,12 @@ class SearchApiController
     /**
      * Tìm Issue theo issue_key HOẶC title.
      *
-     * Ưu tiên: Match issue_key trước (BT-001), sau đó title LIKE.
-     * Dev 3 dùng để hiển thị dropdown kết quả trong global-search.js.
-     *
-     * @param string $q           Từ khóa tìm kiếm (đã trim)
-     * @param int    $workspaceId
-     * @return array
+     * @param  string $q
+     * @param  int    $workspaceId
+     * @return array<int, array<string, mixed>>
      */
     private function searchIssues(string $q, int $workspaceId): array
     {
-        // Wrap keyword cho LIKE – PDO không cho phép bind trực tiếp trong LIKE
         $likeParam = '%' . $this->escapeLikeWildcards($q) . '%';
 
         $stmt = $this->db->prepare(
@@ -169,17 +169,16 @@ class SearchApiController
                 OR i.title     LIKE :q_like
                )
              ORDER BY
-               -- Ưu tiên match issue_key (gõ BT-001 ra ngay)
                CASE WHEN i.issue_key LIKE :q_exact_order THEN 0 ELSE 1 END,
                i.updated_at DESC
              LIMIT :limit"
         );
 
-        $stmt->bindValue(':workspace_id',    $workspaceId,   \PDO::PARAM_INT);
-        $stmt->bindValue(':q_exact',         $likeParam,     \PDO::PARAM_STR);
-        $stmt->bindValue(':q_like',          $likeParam,     \PDO::PARAM_STR);
-        $stmt->bindValue(':q_exact_order',   $likeParam,     \PDO::PARAM_STR);
-        $stmt->bindValue(':limit',           self::MAX_RESULTS_PER_GROUP, \PDO::PARAM_INT);
+        $stmt->bindValue(':workspace_id',    $workspaceId,                   PDO::PARAM_INT);
+        $stmt->bindValue(':q_exact',         $likeParam,                     PDO::PARAM_STR);
+        $stmt->bindValue(':q_like',          $likeParam,                     PDO::PARAM_STR);
+        $stmt->bindValue(':q_exact_order',   $likeParam,                     PDO::PARAM_STR);
+        $stmt->bindValue(':limit',           self::MAX_RESULTS_PER_GROUP,    PDO::PARAM_INT);
         $stmt->execute();
 
         return $stmt->fetchAll();
@@ -187,12 +186,11 @@ class SearchApiController
 
     /**
      * Tìm Project theo tên hoặc key trong Workspace.
-     *
      * Chỉ trả về project đang active (không archive).
      *
-     * @param string $q
-     * @param int    $workspaceId
-     * @return array
+     * @param  string $q
+     * @param  int    $workspaceId
+     * @return array<int, array<string, mixed>>
      */
     private function searchProjects(string $q, int $workspaceId): array
     {
@@ -217,10 +215,10 @@ class SearchApiController
              LIMIT :limit"
         );
 
-        $stmt->bindValue(':workspace_id', $workspaceId, \PDO::PARAM_INT);
-        $stmt->bindValue(':q_name',       $likeParam,   \PDO::PARAM_STR);
-        $stmt->bindValue(':q_key',        $likeParam,   \PDO::PARAM_STR);
-        $stmt->bindValue(':limit',        self::MAX_RESULTS_PER_GROUP, \PDO::PARAM_INT);
+        $stmt->bindValue(':workspace_id', $workspaceId,                PDO::PARAM_INT);
+        $stmt->bindValue(':q_name',       $likeParam,                  PDO::PARAM_STR);
+        $stmt->bindValue(':q_key',        $likeParam,                  PDO::PARAM_STR);
+        $stmt->bindValue(':limit',        self::MAX_RESULTS_PER_GROUP, PDO::PARAM_INT);
         $stmt->execute();
 
         return $stmt->fetchAll();
@@ -228,13 +226,11 @@ class SearchApiController
 
     /**
      * Tìm Member theo tên hoặc email trong Workspace.
+     * Email được mask tại tầng DB để bảo vệ privacy.
      *
-     * JOIN workspace_members để đảm bảo chỉ trả về member của workspace hiện tại.
-     * Không trả về email đầy đủ – chỉ trả về masked version để bảo vệ privacy.
-     *
-     * @param string $q
-     * @param int    $workspaceId
-     * @return array
+     * @param  string $q
+     * @param  int    $workspaceId
+     * @return array<int, array<string, mixed>>
      */
     private function searchMembers(string $q, int $workspaceId): array
     {
@@ -242,7 +238,12 @@ class SearchApiController
 
         $stmt = $this->db->prepare(
             "SELECT u.name,
-                    u.email,
+                    -- Mask email: nguyen.van.a@gmail.com → n***@gmail.com
+                    CONCAT(
+                        LEFT(SUBSTRING_INDEX(u.email, '@', 1), 1),
+                        '***@',
+                        SUBSTRING_INDEX(u.email, '@', -1)
+                    ) AS email,
                     u.avatar_path,
                     wm.role
              FROM users u
@@ -255,22 +256,19 @@ class SearchApiController
              LIMIT :limit"
         );
 
-        $stmt->bindValue(':workspace_id', $workspaceId, \PDO::PARAM_INT);
-        $stmt->bindValue(':q_name',       $likeParam,   \PDO::PARAM_STR);
-        $stmt->bindValue(':q_email',      $likeParam,   \PDO::PARAM_STR);
-        $stmt->bindValue(':limit',        self::MAX_RESULTS_PER_GROUP, \PDO::PARAM_INT);
+        $stmt->bindValue(':workspace_id', $workspaceId,                PDO::PARAM_INT);
+        $stmt->bindValue(':q_name',       $likeParam,                  PDO::PARAM_STR);
+        $stmt->bindValue(':q_email',      $likeParam,                  PDO::PARAM_STR);
+        $stmt->bindValue(':limit',        self::MAX_RESULTS_PER_GROUP, PDO::PARAM_INT);
         $stmt->execute();
 
         return $stmt->fetchAll();
     }
 
     /**
-     * Escape ký tự đặc biệt trong LIKE để tránh SQL injection qua wildcard.
+     * Escape ký tự đặc biệt trong LIKE để tránh kết quả sai do wildcard.
      *
-     * WHY: Nếu user gõ "50%" hoặc "user_name", ký tự % và _ sẽ bị MySQL
-     * hiểu là wildcard → kết quả sai. Cần escape trước khi wrap vào %...%.
-     *
-     * @param string $value
+     * @param  string $value
      * @return string
      */
     private function escapeLikeWildcards(string $value): string

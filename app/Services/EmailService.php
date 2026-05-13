@@ -164,7 +164,13 @@ class EmailService
      */
     public function renderTemplate(string $templateFile, array $data = []): string
     {
-        $templatePath = APP_ROOT . "/app/Views/emails/{$templateFile}.php";
+        // WHY dùng \APP_ROOT thay vì APP_ROOT:
+        // File này nằm trong namespace App\Services.
+        // PHP resolve constant theo thứ tự: namespace hiện tại → global scope.
+        // Thêm backslash '\' buộc PHP tìm thẳng ở global scope,
+        // tránh lỗi "Undefined constant 'App\Services\APP_ROOT'" từ Intelephense
+        // và tránh rủi ro runtime nếu constant chưa kịp load đúng thứ tự.
+        $templatePath = \APP_ROOT . "/app/Views/emails/{$templateFile}.php";
 
         if (!file_exists($templatePath)) {
             throw new \RuntimeException(
@@ -172,8 +178,6 @@ class EmailService
             );
         }
 
-        // extract() để biến trong $data trở thành local variables trong template
-        // VD: $data['user_name'] → $user_name trong file .php
         extract($data, EXTR_SKIP);
 
         ob_start();
