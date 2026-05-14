@@ -1,14 +1,16 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Services;
 
+use PDO;
 use App\Core\Database;
 use App\Core\Session;
-use App\Core\Logger;
 use App\Models\User;
 use App\Models\LoginAttempt;
 use App\Models\UserToken;
-use PDO;
+use App\Models\EmailQueue;
 
 /**
  * AuthService
@@ -17,14 +19,17 @@ use PDO;
  * Controller Auth chỉ được gọi Service này, KHÔNG viết logic trực tiếp.
  *
  * Trách nhiệm:
- *  - register(): validate + insert user + gửi email verify
- *  - verifyEmail(): xác minh token từ link email
- *  - login(): kiểm tra rate limit + xác thực password + set session
- *  - logout(): hủy session + thu hồi remember me token
- *  - resendVerificationEmail(): gửi lại email xác minh
+ *  - register()                 : validate + insert user + gửi email verify
+ *  - verifyEmail()              : xác minh token từ link email
+ *  - login()                    : kiểm tra credential + trạng thái tài khoản
+ *  - logout()                   : hủy session + thu hồi remember me token
+ *  - resendVerificationEmail()  : gửi lại email xác minh
  *
  * @author  Dev 1
  * @version 1.0.0
+ * @see     SRS v1.0.0 – UC-001, UC-002, UC-003, UC-004, UC-042
+ * @see     TDD Backend v1.0.0 – Phần 1.3 (Email graceful degradation)
+ * @see     Task Assignment v1.0.0 – D1-025
  */
 class AuthService
 {
@@ -51,14 +56,14 @@ class AuthService
      * Đăng ký tài khoản mới.
      *
      * Luồng theo SRS UC-001:
-     * 1. Validate input
-     * 2. Kiểm tra email unique
-     * 3. Hash password + insert users
-     * 4. Sinh verify token + insert email_verifications
-     * 5. Gửi email qua EmailService (graceful degradation nếu SMTP lỗi)
+     *   1. Validate input
+     *   2. Kiểm tra email unique
+     *   3. Hash password + insert users
+     *   4. Sinh verify token + insert email_verifications
+     *   5. Gửi email qua EmailService (graceful degradation nếu SMTP lỗi)
      *
-     * @param  array $data ['name', 'email', 'password', 'password_confirm']
-     * @return array ['success' => bool, 'errors' => array, 'user_id' => int|null]
+     * @param  array<string, string> $data  ['name', 'email', 'password', 'password_confirm']
+     * @return array{success: bool, errors: array, user_id: int|null}
      */
     public function register(array $data): array
     {
@@ -68,7 +73,7 @@ class AuthService
             return ['success' => false, 'errors' => $errors, 'user_id' => null];
         }
 
-        // Kiểm tra email unique
+        // --- Kiểm tra email unique ---
         if ($this->user_model->findByEmail($data['email']) !== null) {
             return [
                 'success' => false,
@@ -88,15 +93,16 @@ class AuthService
         ]);
 
         // --- Sinh và lưu verification token ---
+        // TTL lấy từ config constant (config.php D1-010), không hardcode
         $raw_token  = bin2hex(random_bytes(32));
-        $expires_at = date('Y-m-d H:i:s', strtotime('+24 hours'));
+        $expires_at = date('Y-m-d H:i:s', time() + TOKEN_TTL_EMAIL_VERIFY);
 
         $stmt = $this->db->prepare(
-            "INSERT INTO email_verifications (user_id, token, expires_at, created_at) 
-             VALUES (:uid, :token, :expires, NOW())"
+            'INSERT INTO email_verifications (user_id, token, expires_at, created_at)
+             VALUES (:uid, :token, :expires, NOW())'
         );
-        $stmt->bindValue(':uid',     $user_id,   PDO::PARAM_INT);
-        $stmt->bindValue(':token',   $raw_token, PDO::PARAM_STR);
+        $stmt->bindValue(':uid',     $user_id,    PDO::PARAM_INT);
+        $stmt->bindValue(':token',   $raw_token,  PDO::PARAM_STR);
         $stmt->bindValue(':expires', $expires_at, PDO::PARAM_STR);
         $stmt->execute();
 
@@ -114,45 +120,43 @@ class AuthService
      * Xác minh email bằng token từ link.
      *
      * Luồng theo SRS UC-002:
-     * 1. Tìm token trong email_verifications
-     * 2. Kiểm tra chưa hết hạn
-     * 3. Cập nhật is_verified=1 cho user
-     * 4. Xóa bản ghi token (single-use)
+     *   1. Tìm token trong email_verifications
+     *   2. Kiểm tra chưa hết hạn
+     *   3. Dùng hash_equals() chống timing attack
+     *   4. Cập nhật is_verified=1 cho user
+     *   5. Xóa bản ghi token (single-use)
      *
-     * @param  string $token Raw token từ URL
-     * @return array  ['success' => bool, 'message' => string]
+     * @param  string $token  Raw token từ URL.
+     * @return array{success: bool, message: string}
      */
     public function verifyEmail(string $token): array
     {
-        // Tìm token – dùng hash_equals-safe: lấy record rồi so sánh
         $stmt = $this->db->prepare(
-            "SELECT ev.*, u.email 
+            'SELECT ev.*, u.email
              FROM email_verifications ev
              JOIN users u ON u.id = ev.user_id
-             WHERE ev.token = :token 
-               AND ev.expires_at > NOW() 
-             LIMIT 1"
+             WHERE ev.token = :token
+               AND ev.expires_at > NOW()
+             LIMIT 1'
         );
         $stmt->bindValue(':token', $token, PDO::PARAM_STR);
         $stmt->execute();
         $record = $stmt->fetch();
 
         if ($record === false) {
-            // Kiểm tra xem token có tồn tại nhưng hết hạn không
+            // Phân biệt token hết hạn và token không tồn tại
             $stmt2 = $this->db->prepare(
-                "SELECT id FROM email_verifications WHERE token = :token LIMIT 1"
+                'SELECT id FROM email_verifications WHERE token = :token LIMIT 1'
             );
             $stmt2->bindValue(':token', $token, PDO::PARAM_STR);
             $stmt2->execute();
 
-            if ($stmt2->fetch() !== false) {
-                return ['success' => false, 'message' => 'link_expired'];
-            }
-
-            return ['success' => false, 'message' => 'link_invalid'];
+            return $stmt2->fetch() !== false
+                ? ['success' => false, 'message' => 'link_expired']
+                : ['success' => false, 'message' => 'link_invalid'];
         }
 
-        // Dùng hash_equals để chống timing attack theo TDD Phần 1.4.3
+        // hash_equals() chống timing attack theo TDD Phần 1.4.3
         if (!hash_equals($record['token'], $token)) {
             return ['success' => false, 'message' => 'link_invalid'];
         }
@@ -162,7 +166,7 @@ class AuthService
 
         // Xóa token (single-use theo TDD Phần 1.4.2)
         $del = $this->db->prepare(
-            "DELETE FROM email_verifications WHERE id = :id"
+            'DELETE FROM email_verifications WHERE id = :id'
         );
         $del->bindValue(':id', (int) $record['id'], PDO::PARAM_INT);
         $del->execute();
@@ -175,14 +179,16 @@ class AuthService
     // =========================================================================
 
     /**
-     * Xác thực đăng nhập.
+     * Xác thực credential đăng nhập.
      *
      * Chỉ kiểm tra credential và trạng thái tài khoản.
-     * Rate limiting được xử lý ở LoginController (đã có LoginAttempt model).
+     * Rate limiting được xử lý ở LoginController (LoginAttempt model).
      *
      * @param  string     $email
      * @param  string     $password
-     * @return array|null Bản ghi user nếu thành công, null nếu thất bại
+     * @return array|null Bản ghi user nếu thành công.
+     *                    ['__error' => 'not_verified'] nếu chưa xác minh.
+     *                    null nếu sai credential hoặc tài khoản bị xóa.
      */
     public function login(string $email, string $password): ?array
     {
@@ -192,18 +198,18 @@ class AuthService
             return null;
         }
 
-        // Kiểm tra email đã xác minh chưa
-        if ((int) $user['is_verified'] === 0) {
-            // Trả về mảng đặc biệt để Controller phân biệt lý do thất bại
-            return ['__error' => 'not_verified', 'email' => $user['email'], 'id' => $user['id']];
-        }
-
         // Kiểm tra soft delete
         if ($user['deleted_at'] !== null) {
             return null;
         }
 
-        // Verify password – KHÔNG dùng == hay ===
+        // Kiểm tra email đã xác minh chưa
+        // Trả về mảng đặc biệt để Controller phân biệt lý do thất bại
+        if ((int) $user['is_verified'] === 0) {
+            return ['__error' => 'not_verified', 'email' => $user['email'], 'id' => $user['id']];
+        }
+
+        // Verify password — KHÔNG dùng == hay ===
         if (!password_verify($password, $user['password'])) {
             return null;
         }
@@ -218,7 +224,7 @@ class AuthService
     /**
      * Đăng xuất: hủy session, thu hồi Remember Me token nếu có.
      *
-     * @param  string|null $remember_token Raw token từ cookie (có thể null)
+     * @param  string|null $remember_token  Raw token từ cookie (có thể null).
      * @return void
      */
     public function logout(?string $remember_token = null): void
@@ -240,11 +246,11 @@ class AuthService
     /**
      * Gửi lại email xác minh cho user chưa xác minh.
      *
-     * Theo TDD Phần 2.4 (lazy cleanup): xóa token cũ của user này trước
-     * khi tạo token mới, tránh tồn tại nhiều token cho cùng 1 user.
+     * Lazy cleanup theo TDD Phần 2.4: xóa token hết hạn của user trước
+     * khi tạo token mới — tránh tồn tại nhiều token cho cùng 1 user.
      *
      * @param  string $email
-     * @return array  ['success' => bool, 'message' => string]
+     * @return array{success: bool, message: string}
      */
     public function resendVerificationEmail(string $email): array
     {
@@ -259,21 +265,21 @@ class AuthService
             return ['success' => false, 'message' => 'already_verified'];
         }
 
-        // Lazy cleanup: xóa token cũ của user này (theo TDD Phần 2.4)
+        // Lazy cleanup: xóa token hết hạn của user này (TDD Phần 2.4)
         $del = $this->db->prepare(
-            "DELETE FROM email_verifications 
-             WHERE user_id = :uid AND expires_at < NOW()"
+            'DELETE FROM email_verifications
+             WHERE user_id = :uid AND expires_at < NOW()'
         );
         $del->bindValue(':uid', (int) $user['id'], PDO::PARAM_INT);
         $del->execute();
 
-        // Tạo token mới
+        // Tạo token mới — TTL từ config constant
         $raw_token  = bin2hex(random_bytes(32));
-        $expires_at = date('Y-m-d H:i:s', strtotime('+24 hours'));
+        $expires_at = date('Y-m-d H:i:s', time() + TOKEN_TTL_EMAIL_VERIFY);
 
         $stmt = $this->db->prepare(
-            "INSERT INTO email_verifications (user_id, token, expires_at, created_at) 
-             VALUES (:uid, :token, :expires, NOW())"
+            'INSERT INTO email_verifications (user_id, token, expires_at, created_at)
+             VALUES (:uid, :token, :expires, NOW())'
         );
         $stmt->bindValue(':uid',     (int) $user['id'], PDO::PARAM_INT);
         $stmt->bindValue(':token',   $raw_token,        PDO::PARAM_STR);
@@ -286,13 +292,14 @@ class AuthService
     }
 
     // =========================================================================
-    // Private helpers
+    // PRIVATE HELPERS
     // =========================================================================
 
     /**
      * Validate dữ liệu đăng ký theo SRS UC-001.
      *
-     * @return array Mảng lỗi keyed by field name, rỗng nếu hợp lệ
+     * @param  array<string, string> $data
+     * @return array<string, string> Mảng lỗi keyed by field name, rỗng nếu hợp lệ.
      */
     private function validateRegistration(array $data): array
     {
@@ -323,8 +330,16 @@ class AuthService
     }
 
     /**
-     * Gửi email xác minh với graceful degradation.
-     * Nếu SMTP lỗi: ghi log + insert email_queue, KHÔNG throw lên Controller.
+     * Gửi email xác minh với graceful degradation theo TDD Phần 1.3.
+     *
+     * Nếu SMTP lỗi: ghi log + insert email_queue.
+     * KHÔNG throw exception lên caller — luồng đăng ký không bị ảnh hưởng.
+     *
+     * @param  int    $user_id
+     * @param  string $email
+     * @param  string $name
+     * @param  string $raw_token
+     * @return void
      */
     private function sendVerificationEmail(
         int    $user_id,
@@ -332,29 +347,41 @@ class AuthService
         string $name,
         string $raw_token
     ): void {
-        $verify_url = rtrim($_ENV['APP_URL'], '/') . '/verify-email?token=' . $raw_token;
+        // URL từ APP_URL constant (config.php D1-010) — không hardcode
+        $verify_url = rtrim(APP_URL, '/') . '/verify-email?token=' . $raw_token;
 
-        // Render HTML template
+        // Render HTML email template
+        // VIEWS_PATH constant định nghĩa trong config.php (D1-010)
         ob_start();
-        $user_name  = $name;
-        $expires_hours = 24;
-        include __DIR__ . '/../Views/emails/verify-email.php';
-        $html_body = ob_get_clean();
+        $user_name     = $name;
+        $expires_hours = (int) (TOKEN_TTL_EMAIL_VERIFY / 3600);
+        include VIEWS_PATH . '/emails/verify-email.php';
+        $html_body = (string) ob_get_clean();
 
         $subject = 'Xác minh tài khoản BugTracker của bạn';
 
         try {
             $this->email_service->send($email, $name, $subject, $html_body);
-        } catch (\Exception $e) {
-            // Graceful degradation theo TDD Phần 1.3: ghi log, insert queue
-            // KHÔNG để exception phá vỡ luồng đăng ký
-            Logger::error(
-                'Verification email send failed: ' . $e->getMessage(),
-                'AuthService',
-                $e->getTraceAsString()
-            );
 
-            $queue = new \App\Models\EmailQueue();
+        } catch (\Exception $e) {
+            // Graceful degradation theo TDD Phần 1.3 Lớp 2 & 3:
+            //   - Không throw lên Controller
+            //   - Ghi log kỹ thuật
+            //   - Insert vào email_queue để Admin retry thủ công
+
+            // TODO: Replace bằng Logger instance sau khi D1-021 hoàn thành (Ngày 3)
+            // Logger là instance class — KHÔNG gọi Logger::error() kiểu static
+            error_log(sprintf(
+                '[AuthService] Verification email send failed | User: %d | Email: %s | Error: %s | Trace: %s',
+                $user_id,
+                $email,
+                $e->getMessage(),
+                // getTraceAsString() trả về string — đúng type, giới hạn theo TDD Phần 4.2
+                substr($e->getTraceAsString(), 0, 2000)
+            ));
+
+            // Insert vào email_queue để Admin retry từ /admin/email-queue
+            $queue = new EmailQueue();
             $queue->insert($email, $name, $subject, $html_body, 'failed');
         }
     }

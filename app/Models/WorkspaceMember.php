@@ -67,7 +67,7 @@ class WorkspaceMember
     public function listMembers(int $workspaceId): array
     {
         $stmt = $this->db->prepare("
-            SELECT u.id, u.name, u.email, u.avatar, wm.role, wm.joined_at
+            SELECT u.id as user_id, u.name, u.email, u.avatar, wm.id as membership_id, wm.role, wm.joined_at
             FROM workspace_members wm
             JOIN users u ON wm.user_id = u.id
             WHERE wm.workspace_id = ?
@@ -75,5 +75,28 @@ class WorkspaceMember
         ");
         $stmt->execute([$workspaceId]);
         return $stmt->fetchAll();
+    }
+
+    /**
+     * Tìm thông tin thành viên (membership) dựa vào ID bản ghi và Workspace ID.
+     *
+     * @param int $id          ID của bản ghi trong bảng workspace_members
+     * @param int $workspaceId ID của workspace (chống IDOR)
+     * @return array|false     Mảng chứa thông tin thành viên hoặc false nếu không tìm thấy
+     */
+    public function findMembershipById(int $id, int $workspaceId): array|false
+    {
+        $stmt = $this->db->prepare("
+            SELECT * FROM workspace_members 
+            WHERE id = :id AND workspace_id = :workspace_id 
+            LIMIT 1
+        ");
+        
+        $stmt->execute([
+            'id'           => $id,
+            'workspace_id' => $workspaceId
+        ]);
+        
+        return $stmt->fetch();
     }
 }

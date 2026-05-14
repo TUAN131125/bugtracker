@@ -188,7 +188,7 @@ class Logger
         string $trace
     ): void {
         try {
-            $logDir  = APP_ROOT . '/storage/logs';
+            $logDir  = PROJECT_ROOT . '/storage/logs';
             $logFile = $logDir . '/app-' . date('Y-m') . '.log';
 
             // Tạo thư mục nếu chưa có (lần đầu chạy)

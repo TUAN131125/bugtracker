@@ -279,7 +279,7 @@ class ProjectController
         }
 
         // --- 4. Delegate sang Service – Service set status=archived + ghi ActivityLog ---
-        $this->projectService->archiveProject((int) $project['id'], $workspaceId);
+        $this->projectService->archiveProject((int) $project['id'], $workspaceId, $userId);
 
         Response::setFlash('success', 'Project đã được archive. Các Issue hiện ở chế độ chỉ đọc.');
         Response::redirect('/projects');

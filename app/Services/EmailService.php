@@ -164,13 +164,13 @@ class EmailService
      */
     public function renderTemplate(string $templateFile, array $data = []): string
     {
-        // WHY dùng \APP_ROOT thay vì APP_ROOT:
+        // WHY dùng \PROJECT_ROOT thay vì PROJECT_ROOT:
         // File này nằm trong namespace App\Services.
         // PHP resolve constant theo thứ tự: namespace hiện tại → global scope.
         // Thêm backslash '\' buộc PHP tìm thẳng ở global scope,
-        // tránh lỗi "Undefined constant 'App\Services\APP_ROOT'" từ Intelephense
+        // tránh lỗi "Undefined constant 'App\Services\PROJECT_ROOT'" từ Intelephense
         // và tránh rủi ro runtime nếu constant chưa kịp load đúng thứ tự.
-        $templatePath = \APP_ROOT . "/app/Views/emails/{$templateFile}.php";
+        $templatePath = \PROJECT_ROOT . "/app/Views/emails/{$templateFile}.php";
 
         if (!file_exists($templatePath)) {
             throw new \RuntimeException(
@@ -183,5 +183,26 @@ class EmailService
         ob_start();
         include $templatePath;
         return ob_get_clean();
+    }
+
+    public function sendVerificationEmail(string $email, string $name, string $verifyUrl): bool
+    {
+        // 1. Render body HTML từ template (app/Views/emails/verify-email.php)
+        // Lưu ý: Bạn cần tạo file template này nếu chưa có
+        $htmlBody = $this->renderTemplate('verify-email', [
+            'name'      => $name,
+            'verifyUrl' => $verifyUrl
+        ]);
+
+        // 2. Định nghĩa Tiêu đề
+        $subject = 'Xác thực tài khoản BugTracker của bạn';
+
+        // 3. Sử dụng hàm send() đã viết sẵn trong class
+        return $this->send(
+            to: $email,
+            toName: $name,
+            subject: $subject,
+            htmlBody: $htmlBody
+        );
     }
 }

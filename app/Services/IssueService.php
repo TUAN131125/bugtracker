@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Issue;
 use App\Models\Project;
+use App\Core\Session;
 
 class IssueService
 {
@@ -100,7 +101,7 @@ class IssueService
             $userId,
             'issue',
             $issueId,
-            ActivityLogService::ISSUE_STATUS_CHANGED,
+            ActivityLogService::ISSUE_STATUS_CHANGED ?? 'status_changed',
             $issue['status'],
             $newStatus
         );
@@ -130,7 +131,7 @@ class IssueService
             $userId,
             'issue',
             $issueId,
-            ActivityLogService::ISSUE_CREATED,
+            ActivityLogService::ISSUE_CREATED ?? 'issue_created',
             null,
             null
         );
@@ -153,12 +154,108 @@ class IssueService
                 $actorId,
                 'issue',
                 $issueId,
-                ActivityLogService::ISSUE_ASSIGNED,
+                ActivityLogService::ISSUE_ASSIGNED ?? 'issue_assigned',
                 null,
-                $assigneeId
+                (string) $assigneeId
             );
         }
 
         return $result;
+    }
+
+    /**
+     * Thêm liên kết giữa hai Issue.
+     */
+    public function addLink(int $sourceIssueId, int $targetIssueId, string $linkType, int $userId): void
+    {
+        $db = \App\Core\Database::getInstance();
+
+        // 1. Lấy workspace_id từ source issue (để phục vụ việc ghi log)
+        $stmt = $db->prepare("SELECT workspace_id FROM issues WHERE id = ? LIMIT 1");
+        $stmt->execute([$sourceIssueId]);
+        $workspaceId = $stmt->fetchColumn();
+
+        if (!$workspaceId) {
+            throw new \Exception("Issue nguồn không tồn tại.");
+        }
+
+        // 2. Kiểm tra tránh duplicate link (đã link loại này rồi thì không link lại)
+        $checkStmt = $db->prepare("
+            SELECT id FROM issue_links 
+            WHERE source_issue_id = ? AND target_issue_id = ? AND link_type = ?
+        ");
+        $checkStmt->execute([$sourceIssueId, $targetIssueId, $linkType]);
+        if ($checkStmt->fetch()) {
+            throw new \Exception("Liên kết này đã tồn tại.");
+        }
+
+        // 3. Thực hiện Insert
+        $insertStmt = $db->prepare("
+            INSERT INTO issue_links (source_issue_id, target_issue_id, link_type, created_at) 
+            VALUES (?, ?, ?, NOW())
+        ");
+        $insertStmt->execute([$sourceIssueId, $targetIssueId, $linkType]);
+
+        // 4. Ghi Activity Log
+        $action = defined('App\Services\ActivityLogService::ISSUE_LINKED') 
+            ? ActivityLogService::ISSUE_LINKED 
+            : 'issue_linked';
+
+        $this->activityLog->log(
+            (int) $workspaceId,
+            $userId,
+            'issue',
+            $sourceIssueId,
+            $action,
+            null,
+            "Linked to ID: $targetIssueId ($linkType)"
+        );
+    }
+
+    /**
+     * Xóa liên kết giữa hai Issue.
+     *
+     * @param int $linkId      ID của bản ghi liên kết cần xóa
+     * @param int $issueId     ID của issue thực hiện xóa (để validate)
+     * @param int $workspaceId ID của workspace (chống IDOR)
+     */
+    public function removeLink(int $linkId, int $issueId, int $workspaceId): void
+    {
+        $db = \App\Core\Database::getInstance();
+
+        // 1. Kiểm tra IDOR: Link này phải liên quan đến $issueId và Issue đó phải thuộc $workspaceId
+        $stmt = $db->prepare("
+            SELECT l.* FROM issue_links l
+            JOIN issues i ON (l.source_issue_id = i.id OR l.target_issue_id = i.id)
+            WHERE l.id = ? AND i.id = ? AND i.workspace_id = ?
+            LIMIT 1
+        ");
+        $stmt->execute([$linkId, $issueId, $workspaceId]);
+        $link = $stmt->fetch();
+
+        if (!$link) {
+            throw new \Exception("Không tìm thấy liên kết hoặc bạn không có quyền xóa.");
+        }
+
+        // 2. Thực hiện xóa
+        $deleteStmt = $db->prepare("DELETE FROM issue_links WHERE id = ?");
+        $deleteStmt->execute([$linkId]);
+
+        // 3. Ghi Activity Log (Lấy userId từ Session vì tham số truyền vào của Controller không có userId)
+        $userId = (int) Session::get('user_id'); 
+        
+        $action = defined('App\Services\ActivityLogService::ISSUE_UNLINKED') 
+            ? ActivityLogService::ISSUE_UNLINKED 
+            : 'issue_unlinked';
+
+        $this->activityLog->log(
+            $workspaceId,
+            $userId,
+            'issue',
+            $issueId,
+            $action,
+            "Removed link ID: $linkId",
+            null
+        );
     }
 }

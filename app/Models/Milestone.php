@@ -71,4 +71,27 @@ class Milestone
         $stmt = $this->db->prepare("DELETE FROM milestones WHERE id = ?");
         return $stmt->execute([$id]);
     }
+
+    /**
+     * Tìm một milestone theo ID và Workspace ID (chống IDOR).
+     *
+     * @param int $id
+     * @param int $workspaceId
+     * @return array|false
+     */
+    public function findById(int $id, int $workspaceId): array|false
+    {
+        $stmt = $this->db->prepare("
+            SELECT * FROM milestones 
+            WHERE id = :id AND workspace_id = :workspace_id 
+            LIMIT 1
+        ");
+        
+        $stmt->execute([
+            'id'           => $id,
+            'workspace_id' => $workspaceId
+        ]);
+        
+        return $stmt->fetch();
+    }
 }

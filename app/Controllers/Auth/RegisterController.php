@@ -10,6 +10,7 @@ use App\Core\Session;
 use App\Helpers\Csrf;
 use App\Helpers\Sanitizer;
 use App\Models\User;
+use App\Helper\Functions;
 
 /**
  * RegisterController – Đăng ký tài khoản mới

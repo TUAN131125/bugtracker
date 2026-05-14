@@ -374,7 +374,7 @@ class AttachmentController
         //   canManageIssue không tồn tại trong RbacService.
         //   canDeleteAttachment map đúng với RBAC Matrix SRS Phần 1.3:
         //   Admin/Owner có quyền xóa attachment của người khác.
-        $is_admin_or_owner = $this->rbac_service->canDeleteAttachment($current_user_id, $active_workspace_id);
+        $is_admin_or_owner = $this->rbac_service->canDeleteAttachment($current_user_id, $active_workspace_id, $attachment['uploader_id']);
 
         if (!$is_uploader && !$is_admin_or_owner) {
             Response::json([
