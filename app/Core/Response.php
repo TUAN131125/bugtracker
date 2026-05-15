@@ -10,8 +10,23 @@ namespace App\Core;
  * Xử lý tất cả loại response: redirect, JSON (AJAX), render View.
  * Quản lý flash messages để hiển thị thông báo sau redirect.
  *
+ * LAYOUT SYSTEM:
+ *   View template có thể khai báo layout bằng cách set biến $layout:
+ *     $layout = 'landing';   → load /app/Views/layouts/landing.php
+ *     $layout = 'app';       → load /app/Views/layouts/app.php
+ *     $layout = 'auth';      → load /app/Views/layouts/auth.php
+ *     (không set $layout)    → render view trực tiếp, không có layout
+ *
+ *   Layout nhận $content (string) là HTML đã render của view content,
+ *   inject qua: <?= $content ?>
+ *
+ *   WHY dùng output buffering (ob_start/ob_get_clean):
+ *     Phải capture output của view content thành string trước, sau đó
+ *     truyền vào layout dưới dạng biến $content. Nếu include thẳng cả
+ *     2 file thì không có cách nào để layout "bao bọc" content.
+ *
  * @package App\Core
- * @version 1.0.0
+ * @version 1.0.1
  * @see     TDD Backend v1.0.0 – Phần 3.3 (Request Lifecycle)
  * @see     Task Assignment v1.0.0 – D1-007
  */
@@ -40,13 +55,12 @@ class Response
 
     /**
      * Trả về JSON response cho AJAX request.
-     * Tự động set Content-Type header và encode data.
      *
-     * Cấu trúc response chuẩn của BugTracker (Task Assignment Phần 2.2):
+     * Cấu trúc response chuẩn của BugTracker:
      *   {"success": true/false, "data": {...}, "message": "..."}
      *
-     * @param  array<string, mixed> $data       Data cần trả về.
-     * @param  int                  $statusCode HTTP status code.
+     * @param  array<string, mixed> $data
+     * @param  int                  $statusCode
      * @return never
      */
     public static function json(array $data, int $statusCode = 200): never
@@ -61,14 +75,27 @@ class Response
     }
 
     /**
-     * Render PHP view template với data được inject.
+     * Render PHP view template với data được inject, hỗ trợ layout system.
      *
-     * Template path: /app/Views/{template}.php
-     * VD: view('auth/login', ['error' => 'Email không hợp lệ'])
+     * LUỒNG XỬ LÝ:
+     *   1. ob_start() – bắt đầu capture output
+     *   2. extract($data) – inject biến vào scope
+     *   3. include view template → view có thể set $layout = 'landing'
+     *   4. ob_get_clean() → lấy HTML content của view thành $content (string)
+     *   5. Nếu view đã set $layout → load layouts/{$layout}.php với $content
+     *   6. Nếu không có $layout → echo $content trực tiếp
      *
-     * @param  string               $template  Đường dẫn tương đối trong /app/Views/.
-     *                                         VD: 'auth/login', 'issues/list'
-     * @param  array<string, mixed> $data      Dữ liệu inject vào template.
+     * View template path : /app/Views/{template}.php
+     * Layout path        : /app/Views/layouts/{layout}.php
+     *
+     * Ví dụ:
+     *   Response::view('landing/index', ['pageTitle' => '...'])
+     *   → landing/index.php set $layout = 'landing'
+     *   → layouts/landing.php được load với $content = HTML của landing/index.php
+     *
+     * @param  string               $template   Đường dẫn tương đối trong /app/Views/
+     *                                          VD: 'landing/index', 'auth/login'
+     * @param  array<string, mixed> $data       Dữ liệu inject vào template
      * @param  int                  $statusCode
      * @return void
      */
@@ -79,50 +106,86 @@ class Response
     ): void {
         http_response_code($statusCode);
 
-        $viewPath = dirname(__DIR__) . '/Views/' . ltrim($template, '/') . '.php';
+        $viewsDir = dirname(__DIR__) . '/Views/';
+        $viewPath = $viewsDir . ltrim($template, '/') . '.php';
 
         if (!file_exists($viewPath)) {
-            // View không tồn tại — log và trả về 500
-            error_log("[Response] View not found: {$viewPath}");
+            error_log("[Response::view] View không tìm thấy: {$viewPath}");
+
+            // Tránh infinite loop nếu errors/500.php cũng không tồn tại
+            if ($template === 'errors/500') {
+                http_response_code(500);
+                echo '<h1>500 – Lỗi máy chủ nội bộ</h1>';
+                echo '<p>Đã xảy ra lỗi không mong muốn. Vui lòng thử lại sau.</p>';
+                return;
+            }
+
             self::view('errors/500', [], 500);
             return;
         }
 
-        // extract() biến $data thành các biến PHP trong scope của view
-        // VD: ['pageTitle' => 'Login'] → $pageTitle trong view
+        // ----------------------------------------------------------------
+        // Bước 1: Capture output của view content vào buffer
+        //
+        // WHY ob_start trước extract+include:
+        //   extract() tạo biến trong scope hiện tại (bao gồm $layout nếu
+        //   $data có key 'layout'). View template sau đó có thể override
+        //   $layout bằng cách tự set lại ($layout = 'landing').
+        //   ob_get_clean() capture tất cả echo/HTML output của view.
+        // ----------------------------------------------------------------
+        ob_start();
+
+        // EXTR_SKIP: không ghi đè biến đã tồn tại trong scope (an toàn hơn EXTR_OVERWRITE)
         extract($data, EXTR_SKIP);
 
+        // $layout có thể được set bên trong view template.
+        // Khai báo trước include để tránh "undefined variable" notice
+        // nếu view không set $layout.
+        $layout = $layout ?? null;
+
         include $viewPath;
+
+        // Sau khi include, $layout có thể đã được view override
+        // VD: landing/index.php có dòng: $layout = 'landing';
+        $content = ob_get_clean();
+
+        // ----------------------------------------------------------------
+        // Bước 2: Wrap content vào layout (nếu view đã khai báo $layout)
+        // ----------------------------------------------------------------
+        if (!empty($layout)) {
+            $layoutPath = $viewsDir . 'layouts/' . $layout . '.php';
+
+            if (!file_exists($layoutPath)) {
+                error_log("[Response::view] Layout không tìm thấy: {$layoutPath}");
+                // Layout không có → render content trực tiếp, không crash
+                echo $content;
+                return;
+            }
+
+            include $layoutPath;
+            return;
+        }
+
+        // ----------------------------------------------------------------
+        // Bước 3: Không có layout → echo content trực tiếp
+        // Dùng cho: API partial views, error pages, email templates
+        // ----------------------------------------------------------------
+        echo $content;
     }
 
-    /**
-     * Set flash message vào session.
-     * Flash message sẽ tự xóa sau khi được đọc lần đầu.
-     *
-     * @param  string $type    Loại message: 'success' | 'error' | 'warning' | 'info'
-     * @param  string $message Nội dung thông báo.
-     * @return void
-     */
     public static function setFlash(string $type, string $message): void
     {
         Session::start();
         $_SESSION['_flash'][$type] = $message;
     }
 
-    /**
-     * Lấy flash message và xóa khỏi session.
-     * Trả về null nếu không có flash message với type đó.
-     *
-     * @param  string      $type
-     * @return string|null
-     */
+
     public static function getFlash(string $type): ?string
     {
         Session::start();
 
         $message = $_SESSION['_flash'][$type] ?? null;
 
-        // Xóa flash message sau khi đọc — one-time use
         if (isset($_SESSION['_flash'][$type])) {
             unset($_SESSION['_flash'][$type]);
         }
@@ -130,11 +193,7 @@ class Response
         return $message;
     }
 
-    /**
-     * Lấy tất cả flash messages và xóa khỏi session.
-     *
-     * @return array<string, string>
-     */
+    
     public static function getAllFlash(): array
     {
         Session::start();
@@ -145,13 +204,7 @@ class Response
         return $flashes;
     }
 
-    /**
-     * Lưu old input vào session (dùng khi form validation fail).
-     * Controller gọi method này trước khi redirect back.
-     *
-     * @param  array<string, mixed> $input  Thường là $_POST nhưng đã lọc password.
-     * @return void
-     */
+
     public static function setOldInput(array $input): void
     {
         Session::start();
@@ -186,8 +239,7 @@ class Response
     }
 
     /**
-     * Trả về response với HTTP status code cụ thể.
-     * Shorthand để set code trước khi render view.
+     * Set HTTP status code.
      *
      * @param  int $code
      * @return void

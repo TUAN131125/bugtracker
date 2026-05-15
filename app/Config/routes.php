@@ -53,6 +53,8 @@ use App\Controllers\Dashboard\DashboardController;
 use App\Controllers\Admin\EmailQueueController;
 use App\Controllers\Api\NotificationApiController;
 use App\Controllers\Api\SearchApiController;
+use App\Controllers\Public\LandingController;
+
 
 // ----------------------------------------------------------------
 // Middleware Groups – shorthand cho các nhóm hay dùng
@@ -72,10 +74,9 @@ $router->middlewareGroup('authenticated', [
 // SECTION 1: PUBLIC ROUTES (Không cần đăng nhập)
 // Chủ sở hữu: Dev 1 – D1-013, D1-014, D1-020
 // ================================================================
-
-// --- Trang gốc: redirect thông minh theo trạng thái session ---
-// Nếu đã đăng nhập → dashboard | Chưa → login
-$router->get('/', [LoginController::class, 'index']);
+// --- Landing Page ---
+$router->get('/',       [LandingController::class, 'index']);
+$router->get('/terms',  [LandingController::class, 'terms']);
 
 // ----------------------------------------------------------------
 // Authentication – Dev 1
