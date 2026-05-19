@@ -29,6 +29,10 @@
         Chart.js – chỉ load trên trang dashboard (ViewLayer Guide Phần 1.3, Phần 9.4).
         WHY conditional: Chart.js ~220KB, không load trên trang không cần chart.
     -->
+    <?php if (in_array($data['pageId'] ?? '', ['login', 'register', 'forgot-password'], true)): ?>
+        <link rel="stylesheet" href="/assets/css/_auth.css">
+    <?php endif; ?>
+
     <?php if (($data['pageId'] ?? '') === 'dashboard'): ?>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js" defer></script>
     <?php endif; ?>

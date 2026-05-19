@@ -34,7 +34,6 @@ class AuthMiddleware
      */
     public function handle(Request $request, ?string $param = null): void
     {
-        Session::start();
 
         // Bước 1: Kiểm tra session trực tiếp
         if (Session::isLoggedIn()) {

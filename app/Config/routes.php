@@ -126,6 +126,7 @@ $router->get('/invite/{token}/decline',[InvitationController::class, 'decline'])
 $router->get('/onboarding',        [WorkspaceController::class, 'onboarding'],  ['auth']);
 $router->get('/workspace/create',  [WorkspaceController::class, 'create'],      ['auth']);
 $router->post('/workspace/create', [WorkspaceController::class, 'store'],       ['auth']);
+$router->post('/workspace/join',   [WorkspaceController::class, 'join'],        ['auth']);
 
 // ================================================================
 // SECTION 3: AUTHENTICATED ROUTES

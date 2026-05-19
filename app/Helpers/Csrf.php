@@ -39,7 +39,6 @@ class Csrf
      */
     public static function generateToken(): string
     {
-        Session::start();
 
         if (empty($_SESSION[self::SESSION_KEY])) {
             $_SESSION[self::SESSION_KEY] = bin2hex(random_bytes(32));
@@ -83,7 +82,6 @@ class Csrf
      */
     public static function validateToken(string $submittedToken): bool
     {
-        Session::start();
 
         $sessionToken = $_SESSION[self::SESSION_KEY] ?? '';
 
@@ -148,7 +146,6 @@ class Csrf
      */
     public static function regenerateToken(): string
     {
-        Session::start();
         $_SESSION[self::SESSION_KEY] = bin2hex(random_bytes(32));
         return $_SESSION[self::SESSION_KEY];
     }

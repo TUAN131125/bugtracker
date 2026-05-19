@@ -21,18 +21,28 @@ class WorkspaceService
 
     public function createWorkspace(int $userId, array $data): int
     {
-        // Tạo workspace
-        $workspaceId = $this->workspaceModel->create([
-            'name'        => $data['name'],
-            'slug'        => $data['slug'],
-            'description' => $data['description'] ?? null,
-            'owner_id'    => $userId,
-        ]);
+        $db = \App\Core\Database::getInstance();
+        $db->beginTransaction();
 
-        // Tự động thêm người tạo vào với role owner
-        $this->memberModel->add($workspaceId, $userId, 'owner');
+        try {
+            // Tạo workspace
+            $workspaceId = $this->workspaceModel->create([
+                'name'        => $data['name'],
+                'slug'        => $data['slug'],
+                'description' => $data['description'] ?? null,
+                'owner_id'    => $userId,
+            ]);
 
-        return $workspaceId;
+            // Tự động thêm người tạo vào với role owner
+            $this->memberModel->add($workspaceId, $userId, 'owner');
+
+            $db->commit();
+            return $workspaceId;
+        } catch (\Exception $e) {
+            $db->rollBack();
+            error_log('[WorkspaceService::createWorkspace] DB Transaction failed: ' . $e->getMessage());
+            throw $e;
+        }
     }
 
     public function updateWorkspace(int $id, array $data): bool

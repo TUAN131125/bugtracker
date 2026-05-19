@@ -153,6 +153,8 @@ require_once dirname(__DIR__) . '/app/Config/config.php';
 // ----------------------------------------------------------------
 require_once dirname(__DIR__) . '/app/Helpers/functions.php';
 
+\App\Core\Session::start();
+
 // ----------------------------------------------------------------
 // Bước 7: Khởi tạo Router, load routes, dispatch request
 // ----------------------------------------------------------------

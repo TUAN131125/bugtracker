@@ -9,6 +9,7 @@ use App\Core\Response;
 use App\Core\Session;
 use App\Helpers\Csrf;
 use App\Helpers\Sanitizer;
+use App\Helpers\SlugGenerator;
 use App\Services\WorkspaceService;
 use App\Services\RbacService;
 use App\Models\Workspace;
@@ -42,6 +43,27 @@ class WorkspaceController
         $this->workspace_service = new WorkspaceService();
         $this->rbac_service      = new RbacService();
         $this->workspace_model   = new Workspace();
+    }
+
+    /**
+     * Hiển thị trang Onboarding cho user mới.
+     * GET /onboarding
+     *
+     * @param  Request $request
+     * @return void
+     */
+    public function onboarding(Request $request): void
+    {
+        Response::view('auth/onboarding', [
+            'pageId'            => 'onboarding',
+            'pageTitle'         => 'Bắt đầu nào!',
+            'csrfToken'         => Csrf::generateToken(),
+            'errors'            => Session::get('_validation_errors', []),
+            'old_input'         => Response::getOldInput(),
+            'current_user_name' => Session::get('user_name', ''),
+        ]);
+
+        Session::remove('_validation_errors');
     }
 
     /**
@@ -81,7 +103,15 @@ class WorkspaceController
         // Validate tối thiểu: tên workspace bắt buộc
         if (empty($name)) {
             Response::setFlash('error', 'Tên Workspace không được để trống.');
-            Response::redirect('/workspace/create');
+            Response::redirect('/onboarding');
+            return;
+        }
+
+        // Auto-generate slug từ tên nếu form không gửi slug
+        // Sử dụng SlugGenerator::makeUnique() để đảm bảo unique trong DB
+        // Đồng bộ với JS makeSlug() trong auth.js (D1-016)
+        if (empty($slug)) {
+            $slug = SlugGenerator::makeUnique($name, 'workspaces', 'slug');
         }
 
         $data = [
@@ -90,13 +120,53 @@ class WorkspaceController
             'description' => $description,
         ];
 
-        $workspace_id = $this->workspace_service->createWorkspace($user_id, $data);
+        try {
+            $workspace_id = $this->workspace_service->createWorkspace($user_id, $data);
 
-        // Cập nhật active workspace trong session
-        Session::setActiveWorkspace($workspace_id);
+            // Cập nhật active workspace trong session
+            Session::setActiveWorkspace($workspace_id);
+            Session::set('onboarding_completed', true);
 
-        Response::setFlash('success', 'Workspace đã được tạo thành công!');
-        Response::redirect('/dashboard');
+            Response::setFlash('success', 'Workspace đã được tạo thành công!');
+            Response::redirect('/dashboard');
+        } catch (\Exception $e) {
+            error_log('[WorkspaceController::store] ' . $e->getMessage());
+            Response::setFlash('error', 'Không thể tạo Workspace. Vui lòng thử lại.');
+            Response::redirect('/onboarding');
+        }
+    }
+
+    /**
+     * Xử lý tham gia Workspace bằng mã mời (Token).
+     * POST /workspace/join
+     *
+     * @param  Request $request
+     * @return void
+     */
+    public function join(Request $request): void
+    {
+        Csrf::validateOrFail($request->post('csrf_token', ''));
+
+        $inviteCode = trim($request->post('invite_code', ''));
+        if (empty($inviteCode)) {
+            Response::setFlash('error', 'Vui lòng nhập mã mời.');
+            Response::redirect('/onboarding');
+        }
+
+        // Tạm lưu token vào session
+        Session::set('pending_invite_token', $inviteCode);
+
+        // Tái sử dụng logic của InvitationController
+        $invitationController = new \App\Controllers\Workspace\InvitationController();
+        $user_id = Session::getUserId();
+        $user_email = (string) Session::get('user_email', '');
+
+        $success = $invitationController->processPendingInvitation($user_id, $user_email);
+
+        if (!$success) {
+            // Error flash was set by processPendingInvitation
+            Response::redirect('/onboarding');
+        }
     }
 
     /**

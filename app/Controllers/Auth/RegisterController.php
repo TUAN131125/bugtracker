@@ -47,9 +47,10 @@ class RegisterController
         }
 
         Response::view('auth/register', [
+            'pageId'    => 'register',
             'pageTitle' => 'Đăng ký tài khoản',
             'csrfToken' => Csrf::generateToken(),
-            'oldInput'  => Response::getOldInput(),
+            'old_input' => Response::getOldInput(),
             'errors'    => Session::get('_validation_errors', []),
         ]);
 
@@ -107,21 +108,37 @@ class RegisterController
                 'email'    => $email,
                 'password' => $hashedPassword,
             ]);
+
+            // Bước 6: Auto-Login
+            // Lấy lại thông tin user để lưu session
+            $user = $this->userModel->findById($userId);
+            Session::loginUser($user);
+
+            // Bước 7: Kịch bản Đăng ký qua Link mời (Invite Link)
+            // Nếu có pending token trong session, InvitationController sẽ tự động:
+            // 1. Thêm user vào workspace_members
+            // 2. Set is_verified = 1 và onboarding_completed = true
+            // 3. Gọi Response::redirect('/dashboard') (Lệnh này sẽ gọi exit() ngắt luồng)
+            $invitationController = new \App\Controllers\Workspace\InvitationController();
+            $hasProcessedInvite = $invitationController->processPendingInvitation($userId, $email);
+
+            if ($hasProcessedInvite) {
+                // Return để đảm bảo an toàn nếu quá trình redirect trong controller kia không exit
+                return;
+            }
+
+            // Kịch bản Đăng ký tự nhiên (Normal Registration)
+            // Bước 8: Tạo và gửi email xác minh (chạy nền, không block user)
+            $this->sendVerificationEmail($userId, $email, $name);
+
+            // Bước 9: Điều hướng thẳng sang Onboarding thay vì Login
+            Response::redirect('/onboarding');
+
         } catch (\PDOException $e) {
             error_log('[RegisterController] Create user failed: ' . $e->getMessage());
             Response::setFlash('error', 'Đã xảy ra lỗi. Vui lòng thử lại.');
             Response::redirect('/register');
         }
-
-        // Bước 6: Tạo và gửi email xác minh
-        $this->sendVerificationEmail($userId, $email, $name);
-
-        // Bước 7: Thông báo thành công
-        Response::setFlash(
-            'success',
-            'Đăng ký thành công! Vui lòng kiểm tra email để xác minh tài khoản.'
-        );
-        Response::redirect('/login');
     }
 
     /**
@@ -265,20 +282,29 @@ class RegisterController
      */
     private function sendVerificationEmail(int $userId, string $email, string $name): void
     {
-        // Sinh token bằng CSPRNG (TDD Phần 1.4.1)
         $token = bin2hex(random_bytes(32));
-
         $this->userModel->createVerificationToken($userId, $token);
-
         $verifyUrl = url('verify-email/' . $token);
 
-        // Gọi EmailService (Dev 1 implement ở Ngày 3 – D1-017)
-        // Tạm thời dùng placeholder — sẽ replace sau khi có EmailService
         try {
             $emailService = new \App\Services\EmailService();
-            $emailService->sendVerificationEmail($email, $name, $verifyUrl);
+
+            $htmlBody = $emailService->renderTemplate('verify-email', [
+                'user_name'     => $name,
+                'verify_url'    => $verifyUrl,
+                'expires_hours' => 24,
+            ]);
+
+            $emailService->send(
+                to:       $email,
+                toName:   $name,
+                subject:  '[BugTracker] Xác minh địa chỉ email của bạn',
+                htmlBody: $htmlBody
+            );
+
         } catch (\Throwable $e) {
-            // Graceful degradation: không crash nếu email lỗi
+            // Graceful degradation: email lỗi không được crash luồng đăng ký
+            // User vẫn được tạo thành công, chỉ không nhận được email
             error_log('[RegisterController] Failed to send verification email: ' . $e->getMessage());
         }
     }

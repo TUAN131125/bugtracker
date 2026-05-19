@@ -63,6 +63,7 @@ class LoginController
         }
 
         Response::view('auth/login', [
+            'pageId'     => 'login',
             'pageTitle'  => 'Đăng nhập',
             'csrfToken'  => Csrf::generateToken(),
             'oldInput'   => Response::getOldInput(),

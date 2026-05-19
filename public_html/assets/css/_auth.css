@@ -1,0 +1,921 @@
+/* ============================================================
+   _auth.css – Authentication Pages
+   Clean Minimal style: Login, Register, Forgot Password
+   Tất cả màu tham chiếu từ _variables.css
+   Không hardcode giá trị màu hay kích thước
+   ============================================================ */
+
+/* ----------------------------------------------------------
+   PAGE WRAPPER
+   ---------------------------------------------------------- */
+.auth-body {
+  background-color: var(--color-neutral-50);
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.auth-page {
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-8) var(--space-4);
+}
+
+.auth-card-wrapper {
+  width: 100%;
+  max-width: 440px;
+  margin: 0 auto;
+}
+
+/* ----------------------------------------------------------
+   HEADER – Logo + Title
+   ---------------------------------------------------------- */
+.auth-header {
+  text-align: center;
+  margin-bottom: var(--space-8);
+}
+
+.auth-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  text-decoration: none;
+  margin-bottom: var(--space-5);
+}
+
+.auth-logo__img {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.auth-logo__name {
+  font-size: var(--text-xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-neutral-900);
+  letter-spacing: -0.02em;
+}
+
+.auth-title {
+  font-size: var(--text-2xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-neutral-900);
+  letter-spacing: -0.02em;
+  margin: 0 0 var(--space-2);
+  line-height: var(--line-height-tight);
+}
+
+.auth-subtitle {
+  font-size: var(--text-sm);
+  color: var(--color-neutral-500);
+  margin: 0;
+  line-height: var(--line-height-normal);
+}
+
+/* ----------------------------------------------------------
+   CARD
+   ---------------------------------------------------------- */
+.auth-card {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-xl);
+  padding: var(--space-8);
+  box-shadow: var(--shadow-sm);
+}
+
+/* ----------------------------------------------------------
+   ALERTS – Flash messages
+   ---------------------------------------------------------- */
+.auth-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  line-height: var(--line-height-normal);
+  margin-bottom: var(--space-5);
+  border: 1px solid transparent;
+}
+
+.auth-alert__icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.auth-alert--error {
+  background-color: var(--color-danger-50);
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.auth-alert--error .auth-alert__icon {
+  color: var(--color-danger-500);
+}
+
+.auth-alert--success {
+  background-color: var(--color-success-50);
+  border-color: #bbf7d0;
+  color: #15803d;
+}
+
+.auth-alert--success .auth-alert__icon {
+  color: var(--color-success-500);
+}
+
+/* ----------------------------------------------------------
+   FORM GROUPS
+   ---------------------------------------------------------- */
+.form-group {
+  margin-bottom: var(--space-5);
+}
+
+.form-group:last-of-type {
+  margin-bottom: 0;
+}
+
+.form-label {
+  display: block;
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-neutral-700);
+  margin-bottom: var(--space-2);
+  line-height: 1;
+}
+
+/* Label row: label + link (VD: Mật khẩu + Quên mật khẩu?) */
+.form-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-2);
+}
+
+.form-label-row .form-label {
+  margin-bottom: 0;
+}
+
+.form-label-link {
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-primary-600);
+  text-decoration: none;
+  transition: color var(--transition-fast) ease;
+  white-space: nowrap;
+}
+
+.form-label-link:hover {
+  color: var(--color-primary-700);
+}
+
+/* Required asterisk */
+.form-required {
+  color: var(--color-danger-500);
+  margin-left: 2px;
+  font-weight: var(--font-weight-normal);
+}
+
+/* ----------------------------------------------------------
+   FORM INPUTS
+   ---------------------------------------------------------- */
+.form-input {
+  display: block;
+  width: 100%;
+  padding: 0.625rem var(--space-4);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--color-neutral-900);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-neutral-300);
+  border-radius: var(--radius-md);
+  line-height: var(--line-height-normal);
+  transition:
+    border-color var(--transition-fast) ease,
+    box-shadow var(--transition-fast) ease,
+    background-color var(--transition-fast) ease;
+  outline: none;
+  appearance: none;
+}
+
+.form-input::placeholder {
+  color: var(--color-neutral-400);
+}
+
+.form-input:hover:not(:disabled):not([readonly]) {
+  border-color: var(--color-neutral-400);
+}
+
+.form-input:focus {
+  border-color: var(--color-primary-600);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+/* Error state */
+.form-group--error .form-input {
+  border-color: var(--color-danger-500);
+  background-color: #fff8f8;
+}
+
+.form-group--error .form-input:focus {
+  border-color: var(--color-danger-500);
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1);
+}
+
+/* Readonly state (invite email) */
+.form-input--readonly {
+  background-color: var(--color-neutral-50);
+  border-color: var(--color-neutral-200);
+  color: var(--color-neutral-500);
+  cursor: not-allowed;
+}
+
+.form-input--readonly:hover {
+  border-color: var(--color-neutral-200);
+}
+
+/* Input với icon bên phải (password toggle) */
+.form-input-wrapper {
+  position: relative;
+}
+
+.form-input--has-icon-right {
+  padding-right: 2.75rem;
+}
+
+.form-input__icon-right {
+  position: absolute;
+  right: var(--space-3);
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-neutral-400);
+  transition: color var(--transition-fast) ease;
+  padding: 0;
+}
+
+.form-input__icon-right:hover {
+  color: var(--color-neutral-600);
+}
+
+.form-input__icon-right svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+
+/* ----------------------------------------------------------
+   FORM ERROR & HINT
+   ---------------------------------------------------------- */
+.form-error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--color-danger-500);
+  line-height: var(--line-height-normal);
+}
+
+.form-error svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.form-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--color-neutral-400);
+  line-height: var(--line-height-normal);
+}
+
+.form-hint svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--color-neutral-400);
+}
+
+/* ----------------------------------------------------------
+   CHECKBOX
+   ---------------------------------------------------------- */
+.form-checkbox-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-5);
+}
+
+.form-checkbox {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-primary-600);
+  border: 1px solid var(--color-neutral-300);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.form-checkbox-label {
+  font-size: var(--text-sm);
+  color: var(--color-neutral-600);
+  cursor: pointer;
+  user-select: none;
+  line-height: 1;
+}
+
+/* ----------------------------------------------------------
+   PASSWORD STRENGTH METER
+   ---------------------------------------------------------- */
+.password-strength {
+  margin-top: var(--space-2);
+}
+
+.password-strength__bars {
+  display: flex;
+  gap: var(--space-1);
+  margin-bottom: var(--space-1);
+}
+
+.password-strength__bar {
+  flex: 1;
+  height: 3px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-neutral-200);
+  transition: background-color var(--transition-normal) ease;
+}
+
+/* JS thêm data-strength="1|2|3|4" vào .password-strength */
+.password-strength[data-strength="1"] .js-strength-bar:nth-child(1) {
+  background-color: var(--color-danger-500);
+}
+
+.password-strength[data-strength="2"] .js-strength-bar:nth-child(-n + 2) {
+  background-color: var(--color-warning-500);
+}
+
+.password-strength[data-strength="3"] .js-strength-bar:nth-child(-n + 3) {
+  background-color: #f59e0b;
+}
+
+.password-strength[data-strength="4"] .js-strength-bar {
+  background-color: var(--color-success-500);
+}
+
+.password-strength__label {
+  font-size: var(--text-xs);
+  color: var(--color-neutral-400);
+  margin: 0;
+  min-height: 1rem;
+  line-height: 1;
+  transition: color var(--transition-fast) ease;
+}
+
+/* Label màu theo strength */
+.password-strength[data-strength="1"] .password-strength__label {
+  color: var(--color-danger-500);
+}
+.password-strength[data-strength="2"] .password-strength__label {
+  color: var(--color-warning-500);
+}
+.password-strength[data-strength="3"] .password-strength__label {
+  color: #d97706;
+}
+.password-strength[data-strength="4"] .password-strength__label {
+  color: var(--color-success-500);
+}
+
+/* ----------------------------------------------------------
+   SUBMIT BUTTON
+   ---------------------------------------------------------- */
+.auth-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 0.625rem var(--space-4);
+  margin-top: var(--space-6);
+  background-color: var(--color-primary-600);
+  color: white;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-normal);
+  border: 1px solid var(--color-primary-600);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition:
+    background-color var(--transition-fast) ease,
+    box-shadow var(--transition-fast) ease;
+  outline: none;
+}
+
+.auth-btn:hover {
+  background-color: var(--color-primary-700);
+  border-color: var(--color-primary-700);
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+}
+
+.auth-btn:focus-visible {
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3);
+}
+
+.auth-btn:active {
+  background-color: var(--color-primary-700);
+  box-shadow: none;
+}
+
+.auth-btn:disabled,
+.auth-btn[aria-busy="true"] {
+  opacity: 0.6;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Spinner bên trong button */
+.spinner-track {
+  opacity: 0.25;
+}
+.spinner-fill {
+  opacity: 0.75;
+}
+
+/* ----------------------------------------------------------
+   FOOTER LINKS
+   ---------------------------------------------------------- */
+.auth-footer-text {
+  margin-top: var(--space-6);
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--color-neutral-500);
+}
+
+.auth-footer-link {
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-primary-600);
+  text-decoration: none;
+  transition: color var(--transition-fast) ease;
+}
+
+.auth-footer-link:hover {
+  color: var(--color-primary-700);
+}
+
+/* Back link (mũi tên quay lại) */
+.auth-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-neutral-500);
+  text-decoration: none;
+  transition: color var(--transition-fast) ease;
+}
+
+.auth-back-link:hover {
+  color: var(--color-neutral-700);
+}
+
+.auth-back-link svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+/* ----------------------------------------------------------
+   EMAIL SENT STATE (Forgot Password Step 2)
+   ---------------------------------------------------------- */
+.auth-sent-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: var(--space-4) 0;
+  gap: var(--space-3);
+}
+
+.auth-sent-state__icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background-color: var(--color-success-50);
+  border: 1px solid #bbf7d0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: #16a34a;
+}
+
+.auth-sent-state__icon svg {
+  width: 28px;
+  height: 28px;
+}
+
+.auth-sent-state__title {
+  font-size: var(--text-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-neutral-900);
+  margin: 0;
+}
+
+.auth-sent-state__desc {
+  font-size: var(--text-sm);
+  color: var(--color-neutral-500);
+  line-height: var(--line-height-relaxed);
+  max-width: 320px;
+  margin: 0;
+}
+
+.auth-sent-state .auth-back-link {
+  margin-top: var(--space-3);
+}
+
+/* ----------------------------------------------------------
+   RESPONSIVE
+   ---------------------------------------------------------- */
+@media (max-width: 480px) {
+  .auth-page {
+    padding: var(--space-4) var(--space-4);
+    align-items: flex-start;
+    padding-top: var(--space-8);
+  }
+
+  .auth-card {
+    padding: var(--space-6);
+    border-radius: var(--radius-lg);
+  }
+
+  .auth-header {
+    margin-bottom: var(--space-6);
+  }
+}
+
+/* ============================================================
+   ONBOARDING – Bổ sung vào cuối _auth.css
+   ============================================================ */
+
+/* ----------------------------------------------------------
+   WRAPPER MỞ RỘNG CHO ONBOARDING
+   Card rộng hơn login vì chứa 2 option cards
+   ---------------------------------------------------------- */
+.onboarding-wrapper {
+  max-width: 520px;
+}
+
+/* ----------------------------------------------------------
+   OPTION CARDS CONTAINER
+   ---------------------------------------------------------- */
+.onboarding-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* ----------------------------------------------------------
+   DIVIDER GIỮA 2 CARD
+   ---------------------------------------------------------- */
+.onboarding-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  color: var(--color-neutral-400);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.onboarding-divider::before,
+.onboarding-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background-color: var(--color-neutral-200);
+}
+
+/* ----------------------------------------------------------
+   ONBOARDING CARD
+   ---------------------------------------------------------- */
+.onboarding-card {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  transition:
+    border-color var(--transition-fast) ease,
+    box-shadow var(--transition-fast) ease;
+}
+
+.onboarding-card:has(.onboarding-card__trigger[aria-expanded="true"]) {
+  border-color: var(--color-primary-600);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.08);
+}
+
+/* ----------------------------------------------------------
+   CARD TRIGGER BUTTON
+   ---------------------------------------------------------- */
+.onboarding-card__trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  width: 100%;
+  padding: var(--space-5);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color var(--transition-fast) ease;
+}
+
+.onboarding-card__trigger:hover {
+  background-color: var(--color-neutral-50);
+}
+
+.onboarding-card__trigger[aria-expanded="true"] {
+  background-color: var(--color-primary-50);
+}
+
+/* Card Icon */
+.onboarding-card__icon {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: transform var(--transition-fast) ease;
+}
+
+.onboarding-card__icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.onboarding-card__icon--blue {
+  background-color: var(--color-primary-50);
+  color: var(--color-primary-600);
+  border: 1px solid var(--color-primary-100);
+}
+
+.onboarding-card__icon--green {
+  background-color: var(--color-success-50);
+  color: var(--color-success-500);
+  border: 1px solid #bbf7d0;
+}
+
+.onboarding-card__trigger[aria-expanded="true"] .onboarding-card__icon--blue {
+  background-color: var(--color-primary-100);
+}
+
+/* Card Body Text */
+.onboarding-card__body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.onboarding-card__title {
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-neutral-900);
+  line-height: var(--line-height-tight);
+  display: block;
+}
+
+.onboarding-card__desc {
+  font-size: var(--text-xs);
+  color: var(--color-neutral-500);
+  line-height: var(--line-height-normal);
+  display: block;
+}
+
+/* Chevron – rotate khi expanded */
+.onboarding-card__chevron {
+  width: 20px;
+  height: 20px;
+  color: var(--color-neutral-400);
+  flex-shrink: 0;
+  transition:
+    transform var(--transition-normal) ease,
+    color var(--transition-fast) ease;
+}
+
+.onboarding-card__chevron svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+
+.onboarding-card__trigger[aria-expanded="true"] .onboarding-card__chevron {
+  transform: rotate(180deg);
+  color: var(--color-primary-600);
+}
+
+/* ----------------------------------------------------------
+   CARD PANEL – Inline form (ẩn/hiện bằng JS)
+   ---------------------------------------------------------- */
+.onboarding-card__panel {
+  padding: 0 var(--space-5) var(--space-5);
+  border-top: 1px solid var(--color-neutral-100);
+  animation: panel-slide-down var(--transition-normal) ease forwards;
+}
+
+.onboarding-card__panel[hidden] {
+  display: none;
+}
+
+@keyframes panel-slide-down {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Padding top cho form bên trong panel */
+.onboarding-card__panel form {
+  padding-top: var(--space-5);
+}
+
+/* ----------------------------------------------------------
+   FORM INPUT ADDON (URL slug prefix)
+   ---------------------------------------------------------- */
+.form-input-addon-wrapper {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--color-neutral-300);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  transition:
+    border-color var(--transition-fast) ease,
+    box-shadow var(--transition-fast) ease;
+}
+
+.form-input-addon-wrapper:focus-within {
+  border-color: var(--color-primary-600);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.form-group--error .form-input-addon-wrapper {
+  border-color: var(--color-danger-500);
+}
+
+.form-group--error .form-input-addon-wrapper:focus-within {
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1);
+}
+
+.form-input-addon {
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-3);
+  background-color: var(--color-neutral-50);
+  border-right: 1px solid var(--color-neutral-200);
+  font-size: var(--text-xs);
+  color: var(--color-neutral-400);
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  user-select: none;
+}
+
+.form-input--has-addon {
+  border: none;
+  border-radius: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.form-input--has-addon:focus {
+  box-shadow: none;
+  outline: none;
+}
+
+/* ----------------------------------------------------------
+   TEXTAREA
+   ---------------------------------------------------------- */
+.form-textarea {
+  resize: vertical;
+  min-height: 72px;
+  line-height: var(--line-height-relaxed);
+}
+
+/* ----------------------------------------------------------
+   MONOSPACE INPUT (invite code)
+   ---------------------------------------------------------- */
+.form-input--mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  letter-spacing: 0.02em;
+}
+
+/* ----------------------------------------------------------
+   OPTIONAL LABEL TAG
+   ---------------------------------------------------------- */
+.form-optional {
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-normal);
+  color: var(--color-neutral-400);
+  margin-left: var(--space-1);
+}
+
+/* ----------------------------------------------------------
+   SECONDARY BUTTON VARIANT (Card B submit)
+   ---------------------------------------------------------- */
+.auth-btn--secondary {
+  background-color: var(--color-surface);
+  color: var(--color-neutral-700);
+  border-color: var(--color-neutral-300);
+}
+
+.auth-btn--secondary:hover {
+  background-color: var(--color-neutral-50);
+  border-color: var(--color-neutral-400);
+  box-shadow: var(--shadow-xs);
+}
+
+.auth-btn--secondary:focus-visible {
+  box-shadow: 0 0 0 3px rgba(100, 116, 139, 0.2);
+}
+
+/* ----------------------------------------------------------
+   LOGOUT BUTTON (inline form footer)
+   ---------------------------------------------------------- */
+.auth-footer-link--btn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: inherit;
+}
+
+/* ----------------------------------------------------------
+   RESPONSIVE
+   ---------------------------------------------------------- */
+@media (max-width: 480px) {
+  .onboarding-wrapper {
+    max-width: 100%;
+  }
+
+  .onboarding-card__trigger {
+    padding: var(--space-4);
+    gap: var(--space-3);
+  }
+
+  .onboarding-card__icon {
+    width: 38px;
+    height: 38px;
+  }
+
+  .onboarding-card__panel {
+    padding: 0 var(--space-4) var(--space-4);
+  }
+
+  .form-input-addon {
+    font-size: 0.6rem;
+    padding: 0 var(--space-2);
+  }
+}
+
+ 
+ . a u t h - f o o t e r - f o r m   { 
+     d i s p l a y :   i n l i n e - b l o c k ; 
+     m a r g i n :   0 ; 
+ } 
+ 
+ . a u t h - f o o t e r - l i n k - - b t n   { 
+     b a c k g r o u n d :   n o n e ; 
+     b o r d e r :   n o n e ; 
+     p a d d i n g :   0 ; 
+     c u r s o r :   p o i n t e r ; 
+     f o n t - f a m i l y :   i n h e r i t ; 
+     f o n t - s i z e :   i n h e r i t ; 
+ } 
+  
+ 

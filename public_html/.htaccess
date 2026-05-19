@@ -1,16 +1,12 @@
+Options -Indexes
+
 <IfModule mod_rewrite.c>
-    # Bật công cụ chuyển hướng URL
     RewriteEngine On
+    RewriteBase /
 
-    # Không cho phép xem danh sách file trong thư mục
-    Options -Indexes
-
-    # Nếu yêu cầu không phải là file có thật (như ảnh, css, js)
     RewriteCond %{REQUEST_FILENAME} !-f
-    
-    # Và không phải là thư mục có thật
     RewriteCond %{REQUEST_FILENAME} !-d
 
-    # Chuyển mọi yêu cầu về index.php để xử lý
-    RewriteRule ^ index.php [L]
+    RewriteRule ^(.*)$ index.php [QSA,L]
+
 </IfModule>

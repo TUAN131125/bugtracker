@@ -58,8 +58,8 @@ class PasswordResetController
     public function showForgotForm(): void
     {
         $this->response->view('auth/forgot-password', [
-            'page_id'    => 'forgot-password',
-            'page_title' => 'Quên mật khẩu',
+            'pageId'    => 'forgot-password',
+            'pageTitle' => 'Quên mật khẩu',
             'csrf_token' => Csrf::generateToken(),
         ]);
     }
@@ -175,8 +175,8 @@ class PasswordResetController
         }
 
         $this->response->view('auth/reset-password', [
-            'page_id'    => 'reset-password',
-            'page_title' => 'Đặt lại mật khẩu',
+            'pageId'     => 'reset-password',
+            'pageTitle'  => 'Đặt lại mật khẩu',
             'token'      => Sanitizer::escape($token),
             'csrf_token' => Csrf::generateToken(),
         ]);

@@ -36,6 +36,13 @@ class OnboardingMiddleware
         '/workspace/create',
         '/invite/',
         '/logout',
+        // Thêm vào — các route public không cần workspace
+        '/login',
+        '/register',
+        '/verify-email',
+        '/forgot-password',
+        '/reset-password',
+        '/resend-verification',
     ];
 
     /**
