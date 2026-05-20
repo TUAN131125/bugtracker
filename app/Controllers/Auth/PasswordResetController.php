@@ -21,9 +21,17 @@ use App\Core\Logger;
  * Security notes:
  * - Token: bin2hex(random_bytes(32)) = 64 chars, entropy 256 bits (TDD 1.4.1)
  * - TTL: 1 giờ (TOKEN_TTL_PASSWORD_RESET trong config)
- * - Single-use: set used_at ngay sau khi dùng
- * - So sánh: hash_equals() – chống timing attack (TDD 1.4.3)
+ * - Single-use: ghi used_at ngay sau khi dùng, giữ audit trail (không xóa)
+ * - So sánh token: hash_equals() – chống timing attack (TDD 1.4.3)
  * - Chống user enumeration: Luôn hiển thị "check email" dù email có tồn tại hay không
+ *
+ * @version 1.0.1
+ *
+ * CHANGELOG v1.0.1:
+ *   - FIX: validatePassword() dùng !== thay vì hash_equals() để so sánh password confirm.
+ *     hash_equals() dành để so sánh secret token từ DB (chống timing attack trên secret).
+ *     Password confirm là input user nhập trong cùng 1 request — không phải secret,
+ *     không cần constant-time comparison, dùng !== là đúng và rõ ràng hơn.
  */
 class PasswordResetController
 {
@@ -53,13 +61,12 @@ class PasswordResetController
 
     /**
      * GET /forgot-password
-     * Hiển thị form nhập địa chỉ email.
      */
     public function showForgotForm(): void
     {
         $this->response->view('auth/forgot-password', [
-            'pageId'    => 'forgot-password',
-            'pageTitle' => 'Quên mật khẩu',
+            'pageId'     => 'forgot-password',
+            'pageTitle'  => 'Quên mật khẩu',
             'csrf_token' => Csrf::generateToken(),
         ]);
     }
@@ -70,11 +77,9 @@ class PasswordResetController
 
     /**
      * POST /forgot-password
-     * Sinh token, lưu DB, gửi email chứa link reset.
      *
      * WHY luôn trả về cùng một thông báo dù email có tồn tại hay không:
-     * Chống user enumeration attack – kẻ tấn công không biết email nào
-     * đã được đăng ký trong hệ thống.
+     * Chống user enumeration attack — kẻ tấn công không biết email nào đã đăng ký.
      */
     public function sendResetLink(): void
     {
@@ -95,16 +100,14 @@ class PasswordResetController
         }
 
         // 3. Hiển thị thông báo thành công NGAY (chống user enumeration)
-        // Logic thật chạy phía sau – nếu email không tồn tại thì không làm gì cả
         $this->response->setFlash(
             'success',
             'Nếu địa chỉ email này tồn tại trong hệ thống, bạn sẽ nhận được hướng dẫn đặt lại mật khẩu trong vài phút.'
         );
 
-        // 4. Tìm user – nếu không có thì kết thúc (không báo lỗi)
+        // 4. Tìm user — nếu không có thì kết thúc im lặng
         $user = $this->userModel->findByEmail($email);
         if (!$user) {
-            // WHY vẫn redirect thành công: Chống user enumeration
             $this->response->redirect('/forgot-password');
             return;
         }
@@ -124,15 +127,15 @@ class PasswordResetController
         // 7. Render template và gửi email
         $resetUrl = rtrim($_ENV['APP_URL'], '/') . '/reset-password?token=' . $token;
         $htmlBody = $this->emailService->renderTemplate('password-reset', [
-            'user_name'    => $user['name'],
-            'reset_url'    => $resetUrl,
+            'user_name'     => $user['name'],
+            'reset_url'     => $resetUrl,
             'expires_hours' => (int) ($tokenTtl / 3600),
         ]);
 
         $this->emailService->send(
-            to: $user['email'],
-            toName: $user['name'],
-            subject: '[BugTracker] Đặt lại mật khẩu của bạn',
+            to:       $user['email'],
+            toName:   $user['name'],
+            subject:  '[BugTracker] Đặt lại mật khẩu của bạn',
             htmlBody: $htmlBody
         );
 
@@ -145,12 +148,11 @@ class PasswordResetController
     }
 
     // =========================================================================
-    // BƯỚC 3: Hiển thị form đặt mật khẩu mới (khi click link từ email)
+    // BƯỚC 3: Hiển thị form đặt mật khẩu mới
     // =========================================================================
 
     /**
      * GET /reset-password?token={token}
-     * Validate token rồi hiển thị form đặt mật khẩu mới.
      */
     public function showResetForm(): void
     {
@@ -162,7 +164,6 @@ class PasswordResetController
             return;
         }
 
-        // Validate token tồn tại và chưa hết hạn
         $resetRecord = $this->userModel->findValidPasswordResetToken($token);
 
         if (!$resetRecord) {
@@ -188,7 +189,6 @@ class PasswordResetController
 
     /**
      * POST /reset-password
-     * Validate token + password → cập nhật mật khẩu → đánh dấu token đã dùng.
      */
     public function resetPassword(): void
     {
@@ -203,7 +203,7 @@ class PasswordResetController
         $password        = $this->request->post('password', '');
         $passwordConfirm = $this->request->post('password_confirm', '');
 
-        // 2. Validate token (sơ bộ – không empty, đúng độ dài)
+        // 2. Validate token (sơ bộ)
         if (empty($token) || strlen($token) !== 64) {
             $this->response->setFlash('error', 'Token không hợp lệ.');
             $this->response->redirect('/forgot-password');
@@ -231,8 +231,9 @@ class PasswordResetController
         }
 
         // 5. So sánh token bằng hash_equals() – CHỐNG TIMING ATTACK (TDD 1.4.3)
-        // WHY không dùng ===: Toán tử === dừng so sánh ngay khi gặp ký tự khác nhau,
-        // cho phép kẻ tấn công đo thời gian phản hồi để đoán token từng ký tự.
+        // WHY hash_equals() ở đây (không phải bước 3):
+        //   Token này là SECRET lấy từ DB — kẻ tấn công có thể đo thời gian phản hồi
+        //   để đoán token từng ký tự nếu dùng ===. hash_equals() so sánh constant-time.
         if (!hash_equals($resetRecord['token'], $token)) {
             $this->logger->warning(
                 "Token mismatch attempt for user_id={$resetRecord['user_id']}",
@@ -276,6 +277,12 @@ class PasswordResetController
      * - Có ít nhất 1 chữ số
      * - Hai lần nhập phải khớp
      *
+     * WHY dùng !== thay vì hash_equals() để so sánh password confirm:
+     *   hash_equals() dành cho việc so sánh SECRET TOKEN từ DB (chống timing attack
+     *   khi kẻ tấn công đo thời gian phản hồi từ ngoài vào).
+     *   Password confirm là dữ liệu user tự nhập trong cùng 1 request — không phải
+     *   secret, không có timing oracle, nên dùng !== là đúng và rõ ràng hơn.
+     *
      * @return string|null null nếu hợp lệ, message lỗi nếu không
      */
     private function validatePassword(string $password, string $confirm): ?string
@@ -292,7 +299,8 @@ class PasswordResetController
             return 'Mật khẩu phải có ít nhất 1 chữ số.';
         }
 
-        if (!hash_equals($password, $confirm)) {
+        // FIX v1.0.1: Dùng !== thay hash_equals() — password confirm không phải secret
+        if ($password !== $confirm) {
             return 'Hai mật khẩu không khớp nhau.';
         }
 

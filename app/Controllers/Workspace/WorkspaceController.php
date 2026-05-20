@@ -22,15 +22,21 @@ use App\Models\Workspace;
  * Routes (routes.php):
  *   GET    /workspace/create          → create()
  *   POST   /workspace/create          → store()
- *   GET    /workspace/settings        → edit()   [dùng active_workspace_id từ session]
+ *   GET    /workspace/settings        → edit()
  *   PUT    /workspace/settings        → update()
  *   DELETE /workspace/delete          → destroy()
  *   POST   /workspace/switch/{slug}   → switchTo()
  *
  * @package App\Controllers\Workspace
- * @version 1.0.0
+ * @version 1.0.1
  * @see     SRS v1.0.0 – UC-007, UC-010, UC-011, UC-012, UC-013
- * @see     Task Assignment v1.0.0 – D2-007
+ *
+ * CHANGELOG v1.0.1:
+ *   - FIX: join() lấy email từ session qua Session::get('email') thay vì 'user_email'
+ *     để nhất quán với key mà Session::loginUser() lưu.
+ *   - FIX: edit() và update() dùng rbac_service->canManageWorkspace() thay vì
+ *     canManageProject() — tên method phản ánh đúng quyền hạn đang kiểm tra.
+ *   - IMPROVE: Thêm comment rõ ràng về session key contract với Session::loginUser().
  */
 class WorkspaceController
 {
@@ -48,9 +54,6 @@ class WorkspaceController
     /**
      * Hiển thị trang Onboarding cho user mới.
      * GET /onboarding
-     *
-     * @param  Request $request
-     * @return void
      */
     public function onboarding(Request $request): void
     {
@@ -60,7 +63,8 @@ class WorkspaceController
             'csrfToken'         => Csrf::generateToken(),
             'errors'            => Session::get('_validation_errors', []),
             'old_input'         => Response::getOldInput(),
-            'current_user_name' => Session::get('user_name', ''),
+            // Session key 'name' — nhất quán với Session::loginUser(['name' => ...])
+            'current_user_name' => Session::get('name', ''),
         ]);
 
         Session::remove('_validation_errors');
@@ -69,9 +73,6 @@ class WorkspaceController
     /**
      * Hiển thị form tạo Workspace mới.
      * GET /workspace/create
-     *
-     * @param  Request $request  Inject từ Router.
-     * @return void
      */
     public function create(Request $request): void
     {
@@ -84,32 +85,23 @@ class WorkspaceController
     /**
      * Xử lý tạo Workspace mới.
      * POST /workspace/create
-     *
-     * @param  Request $request
-     * @return void
      */
     public function store(Request $request): void
     {
-        // Validate CSRF — bắt buộc cho mọi POST (TDD Phần 4.7)
         Csrf::validateOrFail($request->post('csrf_token', ''));
 
         $user_id = Session::getUserId();
 
-        // Lấy data từ Request instance — KHÔNG gọi Request::post() kiểu static
         $name        = trim($request->post('name', ''));
         $slug        = trim($request->post('slug', ''));
         $description = trim($request->post('description', ''));
 
-        // Validate tối thiểu: tên workspace bắt buộc
         if (empty($name)) {
             Response::setFlash('error', 'Tên Workspace không được để trống.');
             Response::redirect('/onboarding');
             return;
         }
 
-        // Auto-generate slug từ tên nếu form không gửi slug
-        // Sử dụng SlugGenerator::makeUnique() để đảm bảo unique trong DB
-        // Đồng bộ với JS makeSlug() trong auth.js (D1-016)
         if (empty($slug)) {
             $slug = SlugGenerator::makeUnique($name, 'workspaces', 'slug');
         }
@@ -123,7 +115,6 @@ class WorkspaceController
         try {
             $workspace_id = $this->workspace_service->createWorkspace($user_id, $data);
 
-            // Cập nhật active workspace trong session
             Session::setActiveWorkspace($workspace_id);
             Session::set('onboarding_completed', true);
 
@@ -140,8 +131,9 @@ class WorkspaceController
      * Xử lý tham gia Workspace bằng mã mời (Token).
      * POST /workspace/join
      *
-     * @param  Request $request
-     * @return void
+     * FIX v1.0.1: Lấy email từ Session::get('email') — nhất quán với key
+     * mà Session::loginUser(['email' => $user['email']]) lưu vào session.
+     * Trước đây dùng 'user_email' → trả về '' → processPendingInvitation() thất bại.
      */
     public function join(Request $request): void
     {
@@ -151,20 +143,30 @@ class WorkspaceController
         if (empty($inviteCode)) {
             Response::setFlash('error', 'Vui lòng nhập mã mời.');
             Response::redirect('/onboarding');
+            return;
         }
 
-        // Tạm lưu token vào session
         Session::set('pending_invite_token', $inviteCode);
 
-        // Tái sử dụng logic của InvitationController
         $invitationController = new \App\Controllers\Workspace\InvitationController();
         $user_id = Session::getUserId();
-        $user_email = (string) Session::get('user_email', '');
+
+        // FIX: Dùng key 'email' — khớp với Session::loginUser(['email' => ...])
+        // KHÔNG dùng 'user_email' vì Session::loginUser() không lưu key đó.
+        $user_email = (string) Session::get('email', '');
+
+        if (empty($user_email)) {
+            // Phòng hờ: session email bị mất (hiếm gặp nhưng cần xử lý)
+            error_log('[WorkspaceController::join] Session email missing for user_id=' . $user_id);
+            Response::setFlash('error', 'Phiên làm việc không hợp lệ. Vui lòng đăng nhập lại.');
+            Session::destroy();
+            Response::redirect('/login');
+            return;
+        }
 
         $success = $invitationController->processPendingInvitation($user_id, $user_email);
 
         if (!$success) {
-            // Error flash was set by processPendingInvitation
             Response::redirect('/onboarding');
         }
     }
@@ -172,10 +174,10 @@ class WorkspaceController
     /**
      * Hiển thị form chỉnh sửa Workspace.
      * GET /workspace/settings
-     * Dùng active_workspace_id từ session — không cần slug trong URL.
      *
-     * @param  Request $request
-     * @return void
+     * FIX v1.0.1: Dùng canManageWorkspace() thay canManageProject() —
+     * chỉnh sửa Workspace settings là quyền Workspace-level (Owner/Admin),
+     * không phải quyền Project-level.
      */
     public function edit(Request $request): void
     {
@@ -187,27 +189,24 @@ class WorkspaceController
             Response::redirect('/404');
         }
 
-        if (!$this->rbac_service->canManageProject($user_id, $workspace_id)) {
+        // FIX: canManageWorkspace() thay vì canManageProject()
+        if (!$this->rbac_service->canManageWorkspace($user_id, $workspace_id)) {
             Response::redirect('/403');
         }
 
         Response::view('workspace/settings', [
-            'pageTitle'  => 'Cài đặt Workspace',
-            'workspace'  => $workspace,
-            'csrfToken'  => Csrf::generateToken(),
+            'pageTitle' => 'Cài đặt Workspace',
+            'workspace' => $workspace,
+            'csrfToken' => Csrf::generateToken(),
         ]);
     }
 
     /**
      * Xử lý cập nhật thông tin Workspace.
      * PUT /workspace/settings
-     *
-     * @param  Request $request
-     * @return void
      */
     public function update(Request $request): void
     {
-        // Validate CSRF
         Csrf::validateOrFail($request->post('csrf_token', ''));
 
         $workspace_id = Session::getActiveWorkspaceId();
@@ -218,18 +217,17 @@ class WorkspaceController
             Response::redirect('/404');
         }
 
-        if (!$this->rbac_service->canManageProject($user_id, $workspace_id)) {
+        // FIX: canManageWorkspace() thay vì canManageProject()
+        if (!$this->rbac_service->canManageWorkspace($user_id, $workspace_id)) {
             Response::setFlash('error', 'Bạn không có quyền thực hiện thao tác này.');
             Response::redirect('/workspace/settings');
         }
 
-        // Lấy data từ Request instance — KHÔNG gọi Request::post() kiểu static
         $data = [
             'name'        => trim($request->post('name', '')),
             'description' => trim($request->post('description', '')),
         ];
 
-        // Validate tên bắt buộc
         if (empty($data['name'])) {
             Response::setFlash('error', 'Tên Workspace không được để trống.');
             Response::redirect('/workspace/settings');
@@ -244,13 +242,9 @@ class WorkspaceController
     /**
      * Xóa Workspace (chỉ Owner).
      * DELETE /workspace/delete
-     *
-     * @param  Request $request
-     * @return void
      */
     public function destroy(Request $request): void
     {
-        // Validate CSRF
         Csrf::validateOrFail($request->post('csrf_token', ''));
 
         $workspace_id = Session::getActiveWorkspaceId();
@@ -268,8 +262,7 @@ class WorkspaceController
 
         $this->workspace_service->deleteWorkspace($workspace_id);
 
-        // Xóa active_workspace_id khỏi session — WorkspaceMiddleware sẽ
-        // redirect về onboarding ở request tiếp theo nếu còn sót
+        // Xóa toàn bộ workspace state khỏi session
         Session::remove('active_workspace_id');
         Session::remove('onboarding_completed');
         Session::remove('current_role');
@@ -281,14 +274,9 @@ class WorkspaceController
     /**
      * Chuyển đổi sang Workspace khác (Workspace Switcher).
      * POST /workspace/switch/{slug}
-     *
-     * @param  Request $request
-     * @param  string  $slug    Slug của workspace muốn chuyển sang.
-     * @return void
      */
     public function switchTo(Request $request, string $slug): void
     {
-        // Validate CSRF — POST request thay đổi session state
         Csrf::validateOrFail($request->post('csrf_token', ''));
 
         $user_id = Session::getUserId();
@@ -299,7 +287,7 @@ class WorkspaceController
             Response::redirect('/dashboard');
         }
 
-        // WorkspaceService::switchWorkspace() validate user có phải member không
+        // switchWorkspace() validate user có phải member không
         // trước khi set session — chống Horizontal Privilege Escalation (TDD Phần 2.4)
         $success = $this->workspace_service->switchWorkspace($user_id, (int) $workspace['id']);
 

@@ -104,6 +104,7 @@ date_default_timezone_set('Asia/Ho_Chi_Minh');
 // Không để stack trace lộ ra browser trong production
 // ----------------------------------------------------------------
 set_exception_handler(function (Throwable $e) use ($isProduction): void {
+    die("LỖI THỰC TẾ LÀ: " . $e->getMessage() . " (Tại file: " . $e->getFile() . " - Dòng: " . $e->getLine() . ")");
     error_log(sprintf(
         '[BugTracker][CRITICAL] Uncaught %s: %s in %s:%d | Trace: %s',
         get_class($e),
@@ -151,7 +152,7 @@ require_once dirname(__DIR__) . '/app/Config/config.php';
 // Bước 6: Load helper functions
 // Sau config.php → tất cả constant đã sẵn sàng → asset(), url()... hoạt động đúng
 // ----------------------------------------------------------------
-require_once dirname(__DIR__) . '/app/Helpers/functions.php';
+require_once dirname(__DIR__) . '/app/Helpers/Functions.php';
 
 \App\Core\Session::start();
 

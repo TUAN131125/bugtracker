@@ -19,9 +19,15 @@ use App\Helper\Functions;
  * Validation server-side đầy đủ, không tin tưởng client-side.
  *
  * @package App\Controllers\Auth
- * @version 1.0.0
+ * @version 1.0.1
  * @see     SRS v1.0.0 – UC-001, UC-002, UC-042
  * @see     Task Assignment v1.0.0 – D1-013
+ *
+ * CHANGELOG v1.0.1:
+ *   - FIX: Bỏ auto-login cho luồng đăng ký thường — user phải verify email
+ *     trước khi có session, tránh vi phạm SRS UC-003 (is_verified=1 mới được login).
+ *   - FIX: Chỉ loginUser() trong nhánh invite (email đã chứng minh qua link mời).
+ *   - IMPROVE: verifyEmail() kiểm tra is_verified trước khi xử lý lại.
  */
 class RegisterController
 {
@@ -35,9 +41,6 @@ class RegisterController
     /**
      * Hiển thị form đăng ký.
      * GET /register
-     *
-     * @param  Request $request
-     * @return void
      */
     public function showForm(Request $request): void
     {
@@ -52,6 +55,8 @@ class RegisterController
             'csrfToken' => Csrf::generateToken(),
             'old_input' => Response::getOldInput(),
             'errors'    => Session::get('_validation_errors', []),
+            // Prefill email nếu đến từ invite link (Nhánh C trong InvitationController)
+            'invite_email' => $request->get('invite', ''),
         ]);
 
         Session::remove('_validation_errors');
@@ -60,9 +65,6 @@ class RegisterController
     /**
      * Xử lý submit form đăng ký.
      * POST /register
-     *
-     * @param  Request $request
-     * @return void
      */
     public function store(Request $request): void
     {
@@ -79,7 +81,6 @@ class RegisterController
         $errors = $this->validateRegistration($name, $email, $password, $passwordConfirm);
 
         if (!empty($errors)) {
-            // Lưu errors và old input → redirect back
             Session::set('_validation_errors', $errors);
             Response::setOldInput([
                 'name'  => $name,
@@ -107,32 +108,50 @@ class RegisterController
                 'name'     => $name,
                 'email'    => $email,
                 'password' => $hashedPassword,
+                // is_verified=0 mặc định — phải verify email trước khi login
             ]);
 
-            // Bước 6: Auto-Login
-            // Lấy lại thông tin user để lưu session
-            $user = $this->userModel->findById($userId);
-            Session::loginUser($user);
+            // Bước 6: Kịch bản Đăng ký qua Link mời (Invite Flow)
+            //
+            // WHY loginUser() CHỈ ở đây, không ở luồng thường:
+            //   - Nhánh invite: email đã được chứng minh qua link mời → is_verified
+            //     sẽ được set=1 bởi processAcceptance() → an toàn để login ngay.
+            //   - Nhánh thường: is_verified=0, user PHẢI verify email trước.
+            //     Login với is_verified=0 vi phạm SRS UC-003.
+            //
+            // processPendingInvitation() sẽ:
+            //   1. Thêm user vào workspace_members
+            //   2. Set is_verified=1 và onboarding_completed=true
+            //   3. Gọi Response::redirect('/dashboard') (exit())
+            $pendingToken = (string) Session::get('pending_invite_token', '');
 
-            // Bước 7: Kịch bản Đăng ký qua Link mời (Invite Link)
-            // Nếu có pending token trong session, InvitationController sẽ tự động:
-            // 1. Thêm user vào workspace_members
-            // 2. Set is_verified = 1 và onboarding_completed = true
-            // 3. Gọi Response::redirect('/dashboard') (Lệnh này sẽ gọi exit() ngắt luồng)
-            $invitationController = new \App\Controllers\Workspace\InvitationController();
-            $hasProcessedInvite = $invitationController->processPendingInvitation($userId, $email);
+            if (!empty($pendingToken)) {
+                // Có pending invite → login trước, sau đó xử lý invite
+                $user = $this->userModel->findById($userId);
+                Session::loginUser($user);
 
-            if ($hasProcessedInvite) {
-                // Return để đảm bảo an toàn nếu quá trình redirect trong controller kia không exit
-                return;
+                $invitationController = new \App\Controllers\Workspace\InvitationController();
+                $hasProcessedInvite   = $invitationController->processPendingInvitation($userId, $email);
+
+                if ($hasProcessedInvite) {
+                    return; // processAcceptance() đã redirect → exit()
+                }
+
+                // Nếu invite fail (hết hạn, sai email...) → xóa session, fallback bình thường
+                // Flash error đã được set bởi processPendingInvitation()
+                Session::destroy();
             }
 
-            // Kịch bản Đăng ký tự nhiên (Normal Registration)
-            // Bước 8: Tạo và gửi email xác minh (chạy nền, không block user)
+            // Bước 7: Luồng đăng ký thường — KHÔNG loginUser() ở đây
+            // Gửi email xác minh, yêu cầu verify trước khi đăng nhập
             $this->sendVerificationEmail($userId, $email, $name);
 
-            // Bước 9: Điều hướng thẳng sang Onboarding thay vì Login
-            Response::redirect('/onboarding');
+            Response::setFlash(
+                'success',
+                'Đăng ký thành công! Vui lòng kiểm tra email <strong>' . htmlspecialchars($email) . '</strong>'
+                . ' để xác minh tài khoản trước khi đăng nhập.'
+            );
+            Response::redirect('/login');
 
         } catch (\PDOException $e) {
             error_log('[RegisterController] Create user failed: ' . $e->getMessage());
@@ -144,10 +163,6 @@ class RegisterController
     /**
      * Xử lý click link xác minh email.
      * GET /verify-email/{token}
-     *
-     * @param  Request $request
-     * @param  string  $token
-     * @return void
      */
     public function verifyEmail(Request $request, string $token): void
     {
@@ -170,6 +185,17 @@ class RegisterController
             Response::redirect('/login');
         }
 
+        // IMPROVE: Kiểm tra user đã verify chưa — tránh thông báo confusing khi click link lần 2
+        // (token đã bị xóa sau lần verify đầu → findVerificationToken trả null → rơi vào lỗi "hết hạn"
+        //  Nhánh này chỉ chạy khi token vẫn còn trong DB nhưng user đã verified bởi cơ chế khác)
+        $user = $this->userModel->findById((int) $record['user_id']);
+        if ($user && (bool) $user['is_verified']) {
+            // Xóa token thừa nếu còn sót
+            $this->userModel->deleteVerificationToken($token);
+            Response::setFlash('info', 'Tài khoản của bạn đã được xác minh rồi. Vui lòng đăng nhập.');
+            Response::redirect('/login');
+        }
+
         // Cập nhật is_verified = 1
         $this->userModel->updateVerified((int) $record['user_id']);
 
@@ -183,9 +209,6 @@ class RegisterController
     /**
      * Gửi lại email xác minh.
      * POST /resend-verification
-     *
-     * @param  Request $request
-     * @return void
      */
     public function resendVerification(Request $request): void
     {

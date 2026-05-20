@@ -19,7 +19,13 @@ use App\Models\User;
  * Remember Me: HttpOnly cookie + DB token (Auto-login).
  *
  * @package App\Controllers\Auth
- * @version 1.0.1
+ * @version 1.0.2
+ *
+ * CHANGELOG v1.0.2:
+ *   - FIX: clearFailedAttempts() chỉ xóa attempts trong cửa sổ 15 phút,
+ *     tránh xóa nhầm attempts của IP dùng chung (NAT/văn phòng).
+ *   - FIX: redirectBasedOnWorkspace() thêm return sau mỗi redirect
+ *     để ngăn code tiếp tục chạy nếu Response::redirect() không exit().
  */
 class LoginController
 {
@@ -47,6 +53,7 @@ class LoginController
     {
         if (Session::isLoggedIn() || $this->attemptAutoLogin($request)) {
             $this->redirectBasedOnWorkspace();
+            return;
         }
         Response::redirect('/login');
     }
@@ -57,9 +64,9 @@ class LoginController
      */
     public function showForm(Request $request): void
     {
-        // Kiểm tra session hiện tại hoặc thử auto-login qua Remember Me cookie
         if (Session::isLoggedIn() || $this->attemptAutoLogin($request)) {
             $this->redirectBasedOnWorkspace();
+            return;
         }
 
         Response::view('auth/login', [
@@ -139,7 +146,9 @@ class LoginController
             Response::redirect('/login');
         }
 
-        // Bước 7: Đăng nhập thành công — xóa failed attempts
+        // Bước 7: Đăng nhập thành công — xóa failed attempts trong cửa sổ hiện tại
+        // FIX v1.0.2: Chỉ xóa attempts trong 15 phút gần nhất của IP này,
+        // không xóa toàn bộ lịch sử để tránh ảnh hưởng user khác cùng IP (NAT/văn phòng).
         $this->clearFailedAttempts($clientIp);
 
         $workspaces        = $this->userModel->getWorkspaces((int) $user['id']);
@@ -159,7 +168,22 @@ class LoginController
             $this->setRememberMeCookie((int) $user['id'], $request);
         }
 
-        // Bước 9: Redirect
+        // Bước 9: Xử lý pending invite (nếu có) — user vừa đăng nhập qua link mời
+        // InvitationController::accept() đã lưu token vào session trước khi redirect login
+        $pendingToken = (string) Session::get('pending_invite_token', '');
+        if (!empty($pendingToken)) {
+            $invitationController = new \App\Controllers\Workspace\InvitationController();
+            $processed = $invitationController->processPendingInvitation(
+                (int) $user['id'],
+                (string) $user['email']
+            );
+            if ($processed) {
+                return; // processAcceptance() đã redirect → exit()
+            }
+            // Invite fail (hết hạn, sai email...) → flash đã set → tiếp tục redirect thường
+        }
+
+        // Bước 10: Redirect
         if ($activeWorkspaceId === null) {
             Response::redirect('/onboarding');
         }
@@ -223,13 +247,11 @@ class LoginController
             $stmt->execute([':token_hash' => $tokenHash]);
             $user = $stmt->fetch();
 
-            // Nếu token không tồn tại, hết hạn, hoặc tài khoản có vấn đề
             if (!$user || $user['deleted_at'] !== null || !(bool) $user['is_verified']) {
                 $this->clearRememberMeCookie();
                 return false;
             }
 
-            // Hợp lệ -> Đăng nhập tự động
             $workspaces        = $this->userModel->getWorkspaces((int) $user['id']);
             $activeWorkspaceId = !empty($workspaces) ? (int) $workspaces[0]['id'] : null;
 
@@ -271,7 +293,7 @@ class LoginController
             ]);
         } catch (\PDOException $e) {
             error_log('[LoginController] Remember Me DB insert failed: ' . $e->getMessage());
-            return; 
+            return;
         }
 
         $isSecure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
@@ -311,11 +333,18 @@ class LoginController
         ]);
     }
 
+    /**
+     * Redirect về workspace hoặc onboarding dựa trên session.
+     *
+     * FIX v1.0.2: Thêm return sau mỗi nhánh redirect để đảm bảo
+     * luồng dừng lại ngay cả khi Response::redirect() không gọi exit().
+     */
     private function redirectBasedOnWorkspace(): void
     {
         $activeWorkspaceId = Session::get('active_workspace_id');
         if (!$activeWorkspaceId) {
             Response::redirect('/onboarding');
+            return;
         }
 
         $intendedUrl = Session::get('intended_url', '/dashboard');
@@ -364,6 +393,7 @@ class LoginController
     {
         try {
             $db = Database::getInstance();
+            // Dọn bản ghi cũ hơn 1 giờ để tránh bảng phình to
             $db->prepare(
                 'DELETE FROM login_attempts WHERE ip_address = :ip AND attempted_at < DATE_SUB(NOW(), INTERVAL 1 HOUR)'
             )->execute([':ip' => $ip]);
@@ -376,12 +406,24 @@ class LoginController
         }
     }
 
+    /**
+     * Xóa failed attempts của IP trong cửa sổ LOCK_MINUTES hiện tại.
+     *
+     * FIX v1.0.2: Trước đây xóa TOÀN BỘ attempts theo IP, gây ra tình huống
+     * user A đăng nhập thành công xóa luôn lock của user B cùng IP (NAT/văn phòng).
+     * Nay chỉ xóa attempts trong 15 phút gần nhất — đủ để mở lock cho IP này,
+     * nhưng giữ lại lịch sử cũ hơn để audit.
+     */
     private function clearFailedAttempts(string $ip): void
     {
         try {
             $db   = Database::getInstance();
-            $stmt = $db->prepare('DELETE FROM login_attempts WHERE ip_address = :ip');
-            $stmt->execute([':ip' => $ip]);
+            $stmt = $db->prepare(
+                'DELETE FROM login_attempts
+                 WHERE ip_address = :ip
+                   AND attempted_at > DATE_SUB(NOW(), INTERVAL :minutes MINUTE)'
+            );
+            $stmt->execute([':ip' => $ip, ':minutes' => self::LOCK_MINUTES]);
         } catch (\PDOException $e) {
             error_log('[LoginController] Clear attempts failed: ' . $e->getMessage());
         }

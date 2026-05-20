@@ -23,11 +23,15 @@ class RbacService
                 'manage_project', 'create_issue', 'assign_issue', 'close_issue',
                 'manage_members', 'delete_workspace', 'manage_tags', 'manage_milestones',
                 'upload_attachment', 'delete_attachment',
+                'invite_members',    // [BỔ SUNG] Tường minh hoá quyền mời thành viên
+                'manage_workspace',  // [BỔ SUNG] Sửa/đổi tên/avatar/cài đặt Workspace
             ],
             'admin'  => [
                 'manage_project', 'create_issue', 'assign_issue', 'close_issue',
                 'manage_members', 'manage_tags', 'manage_milestones',
                 'upload_attachment', 'delete_attachment',
+                'invite_members',    // [BỔ SUNG] Admin cũng được mời thành viên
+                'manage_workspace',  // [BỔ SUNG] Admin được sửa cài đặt Workspace (trừ xóa)
             ],
             'member' => [
                 'create_issue', 'assign_issue', 'close_issue',
@@ -134,5 +138,95 @@ class RbacService
         }
 
         return false;
+    }
+
+    // =========================================================================
+    // [BỔ SUNG] Các method liên quan đến Invitation – đồng bộ với WorkspaceMember
+    // =========================================================================
+
+    /**
+     * Kiểm tra quyền mời thành viên mới vào Workspace.
+     *
+     * WHY bổ sung tại đây (thay vì chỉ có ở WorkspaceMember model):
+     *   Theo kiến trúc TDD mục 3.4, RbacService là "source of truth" cho
+     *   toàn bộ permission logic. Controller nào dùng injection RbacService
+     *   (thay vì WorkspaceMember trực tiếp) cũng cần gọi được method này.
+     *   Việc có method ở cả 2 chỗ là intentional – WorkspaceMember.canInviteMembers()
+     *   phục vụ InvitationController (legacy call pattern), còn method này
+     *   phục vụ các Controller inject RbacService (pattern chuẩn hơn).
+     *
+     * Delegate sang hasPermission() để dùng chung permission matrix,
+     * không duplicate điều kiện role.
+     *
+     * @param int $userId      ID của user thực hiện hành động
+     * @param int $workspaceId ID của Workspace mục tiêu
+     * @return bool
+     */
+    public function canInviteMembers(int $userId, int $workspaceId): bool
+    {
+        return $this->hasPermission($userId, $workspaceId, 'invite_members');
+    }
+
+    /**
+     * Lấy role của user trong Workspace thông qua RbacService.
+     *
+     * WHY expose method này tại Service layer:
+     *   Controller đôi khi cần biết role cụ thể để đưa ra quyết định phức
+     *   tạp hơn (ví dụ: admin không được assign role admin cho người khác).
+     *   Thay vì inject thêm WorkspaceMember vào Controller đã inject RbacService,
+     *   expose proxy method này để Controller chỉ cần 1 dependency.
+     *
+     * @param int $userId
+     * @param int $workspaceId
+     * @return string|null 'owner' | 'admin' | 'member' | 'guest' | null
+     */
+    public function getRoleInWorkspace(int $userId, int $workspaceId): string|null
+    {
+        return $this->memberModel->getRole($workspaceId, $userId);
+    }
+
+    /**
+     * Kiểm tra user có phải thành viên của Workspace không (bất kể role).
+     *
+     * WHY cần method riêng thay vì check getRoleInWorkspace() !== null:
+     *   Ngữ nghĩa tường minh hơn khi đọc code.
+     *   isMember() trong WorkspaceMember dùng COUNT(*) – đồng nhất behavior.
+     *
+     * @param int $userId
+     * @param int $workspaceId
+     * @return bool
+     */
+    public function isMember(int $userId, int $workspaceId): bool
+    {
+        return $this->memberModel->isMember($workspaceId, $userId);
+    }
+
+    // =========================================================================
+    // [BỔ SUNG] Fix lỗi Intelephense P1013 trong WorkspaceController.php
+    // Ln 193, 221 – "Undefined method 'canManageWorkspace'"
+    // =========================================================================
+
+    /**
+     * Kiểm tra quyền quản lý cài đặt Workspace (sửa tên, avatar, description...).
+     *
+     * WHY tách riêng canManageWorkspace() thay vì dùng canManageMembers():
+     *   'manage_members' = quyền thêm/xóa/đổi role thành viên.
+     *   'manage_workspace' = quyền sửa thông tin Workspace (tên, slug, avatar,
+     *   description, settings JSON). Đây là 2 hành động độc lập – tách permission
+     *   để sau này có thể grant từng loại riêng mà không bị phụ thuộc.
+     *
+     * Phân quyền theo TDD mục 2.2.2 (bảng workspace_members, role ENUM):
+     *   owner  ✅ – toàn quyền, kể cả xóa Workspace
+     *   admin  ✅ – sửa được cài đặt, nhưng KHÔNG xóa Workspace
+     *   member ❌ – chỉ đọc
+     *   guest  ❌ – chỉ đọc
+     *
+     * @param int $userId      ID của user đang thực hiện hành động
+     * @param int $workspaceId ID của Workspace mục tiêu
+     * @return bool
+     */
+    public function canManageWorkspace(int $userId, int $workspaceId): bool
+    {
+        return $this->hasPermission($userId, $workspaceId, 'manage_workspace');
     }
 }

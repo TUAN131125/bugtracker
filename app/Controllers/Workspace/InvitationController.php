@@ -41,10 +41,18 @@ use App\Services\RbacService;
  *   POST /workspace/invitations/{id}/resend → resend()
  *
  * @package App\Controllers\Workspace
- * @version 1.0.2 – fix P1006 bool cast, P1013 findById/extendExpiry signature
+ * @version 1.0.3
  * @see     SRS v1.0.0 – UC-008, UC-009, Phần 2.3 (Invitation Flow)
  * @see     TDD Backend v1.0.0 – Phần 1.4 (Token Security), Phần 1.5 (4 kịch bản)
- * @see     Task Assignment v1.0.0 – D2-022
+ *
+ * CHANGELOG v1.0.3:
+ *   - NOTE: Thêm ghi chú về stale session role — nếu role của user bị thay đổi
+ *     bởi Owner trong khi user đang online, current_role trong session có thể
+ *     không phản ánh đúng quyền hiện tại cho đến khi session refresh.
+ *     Giải pháp triệt để là verify role từ DB trong RbacMiddleware, nhưng
+ *     đó là cải tiến ở tầng Middleware (ngoài scope controller này).
+ *   - IMPROVE: Thêm double-check quyền từ DB trong invite() và resend()
+ *     để giảm thiểu rủi ro stale session role.
  */
 class InvitationController
 {
@@ -78,14 +86,13 @@ class InvitationController
      * Gửi lời mời thành viên mới vào Workspace.
      * AJAX endpoint — Dev 3 gọi từ invite modal trong members.js.
      *
-     * Xử lý 4 kịch bản theo TDD Phần 1.5:
-     *   Kịch bản 1: Email có account, chưa là member → tạo invitation pending + gửi email
-     *   Kịch bản 2: Email chưa có account           → tạo invitation is_pre_registered=1 + gửi email
-     *   Kịch bản 3: Email đã là member              → báo lỗi ngay
-     *   Kịch bản 4: Email đã có invitation pending  → thông báo, frontend hỏi confirm resend
+     * Xử lý 4 kịch bản theo TDD Phần 1.5.
      *
-     * @param  Request $request
-     * @return void
+     * NOTE về stale session role:
+     *   Quyền actor_role lấy từ session — có thể stale nếu Owner vừa demote
+     *   actor trong khi actor đang online. Để giảm thiểu rủi ro này,
+     *   ta double-check bằng cách verify từ DB qua RbacService thay vì
+     *   chỉ dựa vào session value.
      */
     public function invite(Request $request): void
     {
@@ -98,13 +105,17 @@ class InvitationController
 
         $workspace_id = Session::getActiveWorkspaceId();
         $actor_id     = Session::getUserId();
-        $actor_role   = Session::get('current_role', 'guest');
 
-        // Kiểm tra quyền (SRS Phần 1.3 RBAC Matrix)
-        if (!in_array($actor_role, ['owner', 'admin'], true)) {
+        // IMPROVE v1.0.3: Double-check quyền từ DB thay vì chỉ session
+        // Tránh stale session role khi actor bị demote trong khi đang online.
+        // canInviteMembers() query trực tiếp bảng workspace_members.
+        if (!$this->rbac_service->canInviteMembers($actor_id, $workspace_id)) {
             Response::json(['success' => false, 'message' => 'Bạn không có quyền mời thành viên.'], 403);
             return;
         }
+
+        // Lấy role thực tế của actor từ DB (không dùng session để tránh stale)
+        $actor_role = $this->rbac_service->getRoleInWorkspace($actor_id, $workspace_id);
 
         // Validate input
         $email    = trim(strtolower($request->post('email', '')));
@@ -149,7 +160,6 @@ class InvitationController
             $pending = $this->invitation_model->findPendingByEmail($email, $workspace_id);
 
             if ($pending !== null) {
-                // Trả về để frontend hỏi confirm "Gửi lại và gia hạn 7 ngày?"
                 Response::json([
                     'success' => false,
                     'message' => 'Đã có lời mời đang chờ xử lý cho email này.',
@@ -163,11 +173,8 @@ class InvitationController
             }
 
             // --- Kịch bản 1 & 2: Tạo invitation mới ---
-            // FIX P1006 dòng 174:
             // $existing_user === null → email chưa có account → is_pre_registered = true
-            // Khai báo rõ kiểu bool, KHÔNG cast từ int literal để Intelephense
-            // nhận diện đúng kiểu truyền vào $isPreRegistered (bool).
-            $is_pre_registered = ($existing_user === null);  // bool, không phải int
+            $is_pre_registered = ($existing_user === null); // bool
 
             $token = bin2hex(random_bytes(32)); // 64 chars – TDD 1.4.1
 
@@ -177,7 +184,7 @@ class InvitationController
                 role:            $new_role,
                 token:           $token,
                 invitedBy:       $actor_id,
-                isPreRegistered: $is_pre_registered   // ✅ bool → khớp signature Model
+                isPreRegistered: $is_pre_registered
             );
 
             // Gửi email mời
@@ -237,11 +244,7 @@ class InvitationController
      *
      * Nhánh A: Đã đăng nhập + email khớp     → join ngay
      * Nhánh B: Chưa đăng nhập + email có sẵn → redirect login, lưu token vào session
-     * Nhánh C: Email chưa có account          → redirect register với email lock
-     *
-     * @param  Request $request
-     * @param  string  $token
-     * @return void
+     * Nhánh C: Email chưa có account          → redirect register với email prefill
      */
     public function accept(Request $request, string $token): void
     {
@@ -320,7 +323,7 @@ class InvitationController
             Response::setFlash('info', 'Vui lòng đăng nhập để chấp nhận lời mời vào Workspace.');
             Response::redirect('/login');
         } else {
-            // NHÁNH C: Chưa có account
+            // NHÁNH C: Chưa có account — prefill email qua query param (read-only trong form)
             Response::setFlash('info', 'Bạn cần tạo tài khoản để chấp nhận lời mời. Email đã được điền sẵn.');
             Response::redirect('/register?invite=' . urlencode($invited_email));
         }
@@ -337,7 +340,7 @@ class InvitationController
      * user đăng nhập/đăng ký thành công, nếu session có pending_invite_token.
      *
      * @param  int    $userId     User vừa đăng nhập/đăng ký.
-     * @param  string $userEmail  Email của user.
+     * @param  string $userEmail  Email của user (lowercase).
      * @return bool   true nếu có invitation và đã xử lý.
      */
     public function processPendingInvitation(int $userId, string $userEmail): bool
@@ -383,10 +386,6 @@ class InvitationController
      * Từ chối lời mời — revoke token, không join workspace.
      *
      * WHY dùng GET: Người dùng bấm link từ email, email client không gửi POST.
-     *
-     * @param  Request $request
-     * @param  string  $token
-     * @return void
      */
     public function decline(Request $request, string $token): void
     {
@@ -431,11 +430,10 @@ class InvitationController
 
     /**
      * Gia hạn và gửi lại lời mời.
-     * AJAX endpoint — Dev 3 gọi từ nút "Gửi lại" trong pending invitations table.
+     * AJAX endpoint.
      *
-     * @param  Request $request
-     * @param  int     $id      workspace_invitations.id
-     * @return void
+     * NOTE về stale session role: Tương tự invite(), double-check quyền
+     * từ DB thay vì chỉ dựa vào session.
      */
     public function resend(Request $request, int $id): void
     {
@@ -448,17 +446,13 @@ class InvitationController
 
         $workspace_id = Session::getActiveWorkspaceId();
         $actor_id     = Session::getUserId();
-        $actor_role   = Session::get('current_role', 'guest');
 
-        if (!in_array($actor_role, ['owner', 'admin'], true)) {
+        // IMPROVE v1.0.3: Double-check quyền từ DB thay vì chỉ session
+        if (!$this->rbac_service->canInviteMembers($actor_id, $workspace_id)) {
             Response::json(['success' => false, 'message' => 'Bạn không có quyền thực hiện thao tác này.'], 403);
             return;
         }
 
-        // FIX P1013 dòng 454:
-        // findById() trong Model chỉ nhận 1 tham số (int $id).
-        // Kiểm tra workspace_id sau khi find để chống IDOR —
-        // không truyền workspace_id vào Model vì đó không phải trách nhiệm của findById().
         $invitation = $this->invitation_model->findById($id);
 
         if ($invitation === null) {
@@ -481,10 +475,7 @@ class InvitationController
         }
 
         try {
-            // FIX P1013 dòng 472:
-            // extendExpiry() trong Model chỉ nhận (int $id), thời hạn 7 ngày
-            // tự tính bằng DATE_ADD(NOW(), INTERVAL 7 DAY) trong SQL.
-            // Controller KHÔNG truyền $new_expires_at — tránh vi phạm Single Source of Truth.
+            // extendExpiry() tự tính DATE_ADD(NOW(), INTERVAL 7 DAY) trong SQL
             $this->invitation_model->extendExpiry($id);
 
             // Gửi lại email
@@ -556,7 +547,6 @@ class InvitationController
      *
      * @param  array<string, mixed> $invitation  Row từ workspace_invitations.
      * @param  int|null             $userId      null = lấy từ session hiện tại.
-     * @return void
      */
     private function processAcceptance(array $invitation, ?int $userId = null): void
     {
@@ -629,9 +619,6 @@ class InvitationController
     /**
      * Mask email để tránh lộ thông tin trong thông báo lỗi.
      * nguyen.van.a@gmail.com → n***@gmail.com
-     *
-     * @param  string $email
-     * @return string
      */
     private function maskEmail(string $email): string
     {
@@ -653,7 +640,6 @@ class InvitationController
      * @param  int                  $entityId
      * @param  string               $actionType
      * @param  array<string, mixed> $metadata
-     * @return void
      */
     private function logActivity(
         int    $workspaceId,

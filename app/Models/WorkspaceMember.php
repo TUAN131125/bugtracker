@@ -99,4 +99,60 @@ class WorkspaceMember
         
         return $stmt->fetch();
     }
+
+    // =========================================================================
+    // [BỔ SUNG] Fix lỗi Intelephense P1013 "Undefined method"
+    // Ln 112, 118, 451 trong InvitationController.php
+    // =========================================================================
+
+    /**
+     * Lấy role của user trong Workspace theo signature (userId, workspaceId).
+     *
+     * WHY cần method riêng thay vì dùng getRole() trực tiếp:
+     *   getRole() có signature (workspaceId, userId) – tham số ngược lại.
+     *   InvitationController gọi getRoleInWorkspace($userId, $workspaceId)
+     *   nên thứ tự này khác. Nếu chỉ alias thẳng sang getRole() mà không
+     *   có method này, Intelephense vẫn báo lỗi P1013.
+     *   Tạo method tường minh giúp IDE nhận diện đúng và tránh bug âm thầm
+     *   do truyền nhầm thứ tự tham số.
+     *
+     * @param int $userId      ID của user
+     * @param int $workspaceId ID của Workspace
+     * @return string|null     'owner' | 'admin' | 'member' | 'guest' | null
+     */
+    public function getRoleInWorkspace(int $userId, int $workspaceId): string|null
+    {
+        // Delegate sang getRole() – đảo thứ tự tham số cho đúng
+        return $this->getRole($workspaceId, $userId);
+    }
+
+    /**
+     * Kiểm tra user có quyền mời thành viên vào Workspace không.
+     *
+     * WHY đặt ở Model thay vì chỉ dùng RbacService::canManageMembers():
+     *   InvitationController đang gọi $this->memberModel->canInviteMembers()
+     *   trực tiếp (Ln 112, 451). Thay vì refactor Controller, ta implement
+     *   method còn thiếu ngay tại đây – ít thay đổi nhất, an toàn nhất.
+     *
+     * WHY KHÔNG gọi new RbacService() bên trong:
+     *   RbacService phụ thuộc WorkspaceMember → gọi ngược lại sẽ tạo
+     *   circular dependency. Thay vào đó, inline điều kiện role trực tiếp.
+     *   Logic đơn giản (2 role được phép) nên không cần abstraction thêm.
+     *
+     * Theo TDD mục 1.5: chỉ owner và admin mới được tạo/thu hồi invitation.
+     *
+     * @param int $userId      ID của user đang thực hiện hành động
+     * @param int $workspaceId ID của Workspace mục tiêu
+     * @return bool
+     */
+    public function canInviteMembers(int $userId, int $workspaceId): bool
+    {
+        $role = $this->getRole($workspaceId, $userId);
+
+        if ($role === null) {
+            return false; // Không phải thành viên → không có quyền gì
+        }
+
+        return in_array($role, ['owner', 'admin'], true);
+    }
 }
