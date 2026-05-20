@@ -4,6 +4,7 @@
  * @var int $unread_notifs  Số lượng thông báo chưa đọc [cite: 265]
  * @var string $csrf_token  Token bảo mật cho thao tác đăng xuất [cite: 180]
  */
+use App\Helpers\Sanitizer;
 ?>
 
 <div class="header-inner d-flex justify-content-between align-items-center w-100 px-4 py-2 bg-white border-bottom shadow-sm">

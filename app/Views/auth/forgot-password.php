@@ -2,7 +2,9 @@
 /**
  * @var string $csrf_token  Token chống tấn công giả mạo CSRF [cite: 180]
  * @var array $errors       Mảng chứa thông báo lỗi biểu mẫu
+ * 
  */
+use App\Helpers\Sanitizer;
 ?>
 
 <div class="auth-card">

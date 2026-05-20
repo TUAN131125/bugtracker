@@ -2,6 +2,7 @@
 /**
  * @var array $issue Dữ liệu tóm tắt của một Issue
  */
+use App\Helpers\Sanitizer;
 ?>
 
 <div class="card issue-card mb-2 shadow-sm border-left-<?= Sanitizer::escape($issue['priority'] ?? 'medium') ?>">

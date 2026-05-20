@@ -4,6 +4,7 @@
  * @var array $errors       Mảng lưu lỗi kiểm tra phía Server [cite: 286]
  * @var array $old          Mảng lưu lại dữ liệu cũ đã nhập khi form bị trả về
  */
+use App\Helpers\Sanitizer;
 ?>
 
 <div class="auth-card">

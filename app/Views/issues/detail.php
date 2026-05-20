@@ -6,6 +6,7 @@
  * @var array $attachments  Danh sách tệp đính kèm
  * @var array $allowed_transitions Danh sách trạng thái hợp lệ có thể chuyển sang
  */
+use App\Helpers\Sanitizer;
 ?>
 
 <div class="page-container issue-detail-layout">

@@ -3,6 +3,7 @@
  * Container này hiển thị các thông báo Flash Session được set từ Controller
  * Ví dụ: $_SESSION['flash_success'] = 'Cập nhật thành công!'
  */
+use App\Helpers\Sanitizer;
 ?>
 
 <div aria-live="polite" aria-atomic="true" class="toast-container position-fixed" style="top: 20px; right: 20px; z-index: 9999;">

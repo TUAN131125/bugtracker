@@ -5,6 +5,7 @@
  * @var string $sub_layout  Đường dẫn đến layout con (app, auth, hoặc landing)
  * @var string $view_content Nội dung HTML lõi của view chức năng
  */
+use App\Helpers\Sanitizer;
 ?>
 <!DOCTYPE html>
 <html lang="vi">

@@ -5,6 +5,7 @@
  * @var string $current_route       Đường dẫn hiện tại (để đánh dấu active menu)
  * @var string $current_user_role   Role của user trong workspace hiện tại [cite: 102]
  */
+use App\Helpers\Sanitizer;
 
 // Xác định quyền để hiển thị menu
 $isAdminOrOwner = in_array($current_user_role, ['owner', 'admin']);

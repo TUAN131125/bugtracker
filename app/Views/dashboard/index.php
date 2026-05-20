@@ -7,6 +7,7 @@
  * @var array $top_reporters            Danh sách 5 Thành viên phát hiện nhiều lỗi nhất
  * @var array $recent_activities         Danh sách 10 hoạt động gần nhất trong Workspace
  */
+use App\Helpers\Sanitizer;
 ?>
 
 <div class="dashboard-container">

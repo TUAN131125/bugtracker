@@ -1,0 +1,10 @@
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Trỏ thẳng tên miền gốc vào file index.php trong public_html
+    RewriteRule ^$ public_html/index.php [L]
+
+    # Trỏ tất cả các file/thư mục khác vào public_html
+    RewriteCond %{REQUEST_URI} !^/public_html/
+    RewriteRule ^(.*)$ public_html/$1 [L]
+</IfModule>

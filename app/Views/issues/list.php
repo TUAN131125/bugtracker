@@ -5,6 +5,7 @@
  * @var array $tags         Danh sách Tags trong Workspace
  * @var array $members      Danh sách Member để gán bộ lọc
  */
+use App\Helpers\Sanitizer;
 ?>
 
 <div class="page-container">

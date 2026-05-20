@@ -4,6 +4,7 @@
  * @var array $errors       Mảng lưu trữ thông báo lỗi cấu hình từ Controller 
  * @var string $old_email   Dữ liệu email cũ giữ lại khi submit lỗi
  */
+use App\Helpers\Sanitizer;
 ?>
 
 <div class="auth-card">

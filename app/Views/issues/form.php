@@ -7,6 +7,7 @@
  * @var array $errors       Mảng lỗi validation
  */
 $isEdit = !empty($issue['id']);
+use App\Helpers\Sanitizer;
 ?>
 
 <div class="page-container max-w-4xl mx-auto">

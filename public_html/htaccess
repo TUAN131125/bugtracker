@@ -1,0 +1,11 @@
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+
+    # Bỏ qua nếu người dùng truy cập vào một file hoặc thư mục có thật (như hình ảnh, css)
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+
+    # Đẩy toàn bộ request còn lại cho file index.php xử lý
+    RewriteRule ^(.*)$ index.php [QSA,L]
+</IfModule>

@@ -4,6 +4,7 @@
  * @var array $filters      Các bộ lọc hiện tại (status, search)
  * @var string $csrf_token  Token chống tấn công CSRF
  */
+use App\Helpers\Sanitizer;
 ?>
 
 <div class="admin-container">

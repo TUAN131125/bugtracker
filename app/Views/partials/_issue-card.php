@@ -2,6 +2,7 @@
 /**
  * @var array $issue Dữ liệu tóm tắt của một Issue
  */
+use App\Helpers\Sanitizer;
 ?>
 
 <div class="card issue-card mb-2 shadow-sm border-left-<?= Sanitizer::escape($issue['priority'] ?? 'medium') ?>">
@@ -30,4 +31,5 @@
                 <?php endif; ?>
                 
                 <?php if (($issue['comment_count'] ?? 0) > 0): ?>
-                    <span
+                    <span class="mr-2" title="Có bình luận">💬 <?= Sanitizer::escape($issue['comment_count']) ?></span>
+                <?php endif; ?>
