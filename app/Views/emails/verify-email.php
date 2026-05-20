@@ -1,88 +1,44 @@
 <?php
-// Biến nhận từ EmailService::renderTemplate():
-// $user_name    (string) – Tên người dùng
-// $verify_url   (string) – Link xác minh có chứa token
-// $expires_hours (int)   – Thời hạn token (mặc định 24h)
+/**
+ * @var string $user_name      Tên người dùng
+ * @var string $verify_url     Đường link chứa token xác minh
+ * @var int $expires_hours     Thời gian hết hạn (24 giờ)
+ */
 ?>
 <!DOCTYPE html>
-<html lang="vi">
+<html>
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Xác minh địa chỉ email – BugTracker</title>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f4f6f8; margin: 0; padding: 20px; line-height: 1.6; color: #333333; }
+        .container { max-width: 600px; background-color: #ffffff; padding: 30px; border-radius: 8px; margin: 0 auto; border: 1px solid #e1e4e8; }
+        .header { border-bottom: 2px solid #2E86AB; padding-bottom: 15px; margin-bottom: 20px; }
+        .header h2 { color: #2E86AB; margin: 0; }
+        .btn { display: inline-block; padding: 12px 24px; background-color: #2E86AB; color: #ffffff !important; text-decoration: none; border-radius: 4px; font-weight: bold; margin: 20px 0; }
+        .footer { margin-top: 30px; padding-top: 15px; border-top: 1px solid #eeeeee; font-size: 12px; color: #7f8c8d; text-align: center; }
+    </style>
 </head>
-<body style="margin:0;padding:0;background-color:#F8FAFC;font-family:Arial,Helvetica,sans-serif;">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
-       style="background-color:#F8FAFC;padding:40px 0;">
-  <tr>
-    <td align="center">
-      <table role="presentation" width="520" cellpadding="0" cellspacing="0"
-             style="background-color:#FFFFFF;border-radius:8px;
-                    border:1px solid #E2E8F0;overflow:hidden;">
-
-        <!-- Header -->
-        <tr>
-          <td style="background-color:#2563EB;padding:28px 40px;text-align:center;">
-            <p style="margin:0;color:#FFFFFF;font-size:22px;font-weight:700;
-                      letter-spacing:-0.3px;">🐛 BugTracker</p>
-          </td>
-        </tr>
-
-        <!-- Body -->
-        <tr>
-          <td style="padding:40px;">
-            <p style="margin:0 0 16px;font-size:16px;color:#0F172A;line-height:1.6;">
-              Xin chào <strong><?= htmlspecialchars($user_name, ENT_QUOTES, 'UTF-8') ?></strong>,
-            </p>
-            <p style="margin:0 0 24px;font-size:15px;color:#334155;line-height:1.7;">
-              Cảm ơn bạn đã đăng ký tài khoản BugTracker. Vui lòng nhấn nút bên dưới
-              để xác minh địa chỉ email và kích hoạt tài khoản của bạn.
-            </p>
-
-            <!-- CTA Button -->
-            <table role="presentation" cellpadding="0" cellspacing="0"
-                   style="margin:0 auto 28px;">
-              <tr>
-                <td style="background-color:#2563EB;border-radius:6px;">
-                  <a href="<?= htmlspecialchars($verify_url, ENT_QUOTES, 'UTF-8') ?>"
-                     style="display:inline-block;padding:14px 32px;
-                            color:#FFFFFF;font-size:15px;font-weight:600;
-                            text-decoration:none;letter-spacing:0.2px;">
-                    Xác minh địa chỉ email
-                  </a>
-                </td>
-              </tr>
-            </table>
-
-            <p style="margin:0 0 12px;font-size:13px;color:#64748B;line-height:1.6;">
-              Nếu nút không hoạt động, hãy sao chép và dán đường dẫn sau vào trình duyệt:
-            </p>
-            <p style="margin:0 0 24px;padding:12px;background:#F1F5F9;
-                      border-radius:4px;font-size:12px;color:#334155;
-                      word-break:break-all;font-family:Courier New,monospace;">
-              <?= htmlspecialchars($verify_url, ENT_QUOTES, 'UTF-8') ?>
-            </p>
-
-            <p style="margin:0;font-size:13px;color:#94A3B8;line-height:1.6;">
-              ⏱ Link có hiệu lực trong <strong><?= (int) $expires_hours ?> giờ</strong>.
-              Nếu bạn không đăng ký tài khoản này, hãy bỏ qua email này.
-            </p>
-          </td>
-        </tr>
-
-        <!-- Footer -->
-        <tr>
-          <td style="padding:20px 40px;background-color:#F8FAFC;
-                     border-top:1px solid #E2E8F0;text-align:center;">
-            <p style="margin:0;font-size:12px;color:#94A3B8;">
-              © <?= date('Y') ?> BugTracker – Email này được gửi tự động, vui lòng không trả lời.
-            </p>
-          </td>
-        </tr>
-
-      </table>
-    </td>
-  </tr>
-</table>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>Xác minh địa chỉ Email</h2>
+        </div>
+        <p>Chào <strong><?= Sanitizer::escape($user_name) ?></strong>,</p>
+        <p>Cảm ơn bạn đã đăng ký tài khoản tại hệ thống BugTracker. Để hoàn tất quá trình đăng ký và kích hoạt tài khoản, vui lòng nhấn vào nút bên dưới:</p>
+        
+        <div style="text-align: center;">
+            <a href="<?= Sanitizer::escape($verify_url) ?>" class="btn">Xác minh Email ngay</a>
+        </div>
+        
+        <p style="font-size: 14px; color: #e74c3c;"><em>Lưu ý: Liên kết này chỉ có hiệu lực trong vòng <?= Sanitizer::escape($expires_hours) ?> giờ.</em></p>
+        <p>Nếu nút bấm không hoạt động, bạn có thể copy và dán đường dẫn sau vào trình duyệt:<br>
+            <a href="<?= Sanitizer::escape($verify_url) ?>" style="color: #2E86AB; word-break: break-all;"><?= Sanitizer::escape($verify_url) ?></a>
+        </p>
+        <p>Nếu bạn không thực hiện đăng ký này, vui lòng bỏ qua email.</p>
+        
+        <div class="footer">
+            &copy; <?= date('Y') ?> BugTracker. Hệ thống quản lý lỗi làm việc nhóm.
+        </div>
+    </div>
 </body>
 </html>

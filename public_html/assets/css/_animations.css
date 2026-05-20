@@ -1,0 +1,41 @@
+/* ==========================================================================
+   Animations & Transitions
+   ========================================================================== */
+
+/* Fade In */
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+.fade-in {
+    animation: fadeIn 0.3s ease-in forwards;
+}
+
+/* Slide Up */
+@keyframes slideUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+.slide-up {
+    animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Slide In Right (Dành cho Toast) */
+@keyframes slideInRight {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+
+/* Spin (Dành cho icon loading) */
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+.spin-anim {
+    animation: spin 1s linear infinite;
+    display: inline-block;
+}
+
+/* General Transition classes */
+.transition-all {
+    transition: all 0.3s ease;
+}

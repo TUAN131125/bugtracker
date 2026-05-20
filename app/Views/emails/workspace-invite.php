@@ -1,67 +1,51 @@
 <?php
-// Biến: $inviter_name, $workspace_name, $role, $invite_url, $expires_days
-$role_labels = [
-    'admin'  => 'Quản trị viên',
-    'member' => 'Thành viên',
-    'guest'  => 'Khách/Reporter',
-];
-$role_display = $role_labels[$role ?? 'member'] ?? 'Thành viên';
+/**
+ * @var string $inviter_name   Tên người gửi lời mời
+ * @var string $workspace_name Tên Workspace
+ * @var string $role           Vai trò được phân công (Admin/Member/Guest)
+ * @var string $invite_url     Đường link tham gia chứa token
+ * @var int $expires_days      Thời gian hết hạn (7 ngày)
+ */
 ?>
 <!DOCTYPE html>
-<html lang="vi">
-<head><meta charset="UTF-8"><title>Lời mời tham gia – BugTracker</title></head>
-<body style="margin:0;padding:0;background-color:#F8FAFC;font-family:Arial,Helvetica,sans-serif;">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
-       style="background-color:#F8FAFC;padding:40px 0;">
-  <tr>
-    <td align="center">
-      <table role="presentation" width="520" cellpadding="0" cellspacing="0"
-             style="background-color:#FFFFFF;border-radius:8px;border:1px solid #E2E8F0;overflow:hidden;">
-        <tr>
-          <td style="background-color:#2563EB;padding:28px 40px;text-align:center;">
-            <p style="margin:0;color:#FFFFFF;font-size:22px;font-weight:700;">🐛 BugTracker</p>
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:40px;">
-            <p style="margin:0 0 16px;font-size:16px;color:#0F172A;line-height:1.6;">
-              <strong><?= htmlspecialchars($inviter_name, ENT_QUOTES, 'UTF-8') ?></strong>
-              đã mời bạn tham gia Workspace
-              <strong>"<?= htmlspecialchars($workspace_name, ENT_QUOTES, 'UTF-8') ?>"</strong>
-              với vai trò <strong><?= htmlspecialchars($role_display, ENT_QUOTES, 'UTF-8') ?></strong>.
-            </p>
-            <p style="margin:0 0 28px;font-size:15px;color:#334155;line-height:1.7;">
-              Nhấn nút bên dưới để chấp nhận lời mời và bắt đầu cộng tác.
-            </p>
-            <table role="presentation" cellpadding="0" cellspacing="0"
-                   style="margin:0 auto 28px;">
-              <tr>
-                <td style="background-color:#16A34A;border-radius:6px;">
-                  <a href="<?= htmlspecialchars($invite_url, ENT_QUOTES, 'UTF-8') ?>"
-                     style="display:inline-block;padding:14px 32px;color:#FFFFFF;
-                            font-size:15px;font-weight:600;text-decoration:none;">
-                    Chấp nhận lời mời
-                  </a>
-                </td>
-              </tr>
-            </table>
-            <p style="margin:0;font-size:13px;color:#94A3B8;">
-              ⏱ Lời mời có hiệu lực trong <strong><?= (int) $expires_days ?> ngày</strong>.
-              Nếu bạn không biết về lời mời này, hãy bỏ qua email này.
-            </p>
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:20px 40px;background-color:#F8FAFC;
-                     border-top:1px solid #E2E8F0;text-align:center;">
-            <p style="margin:0;font-size:12px;color:#94A3B8;">
-              © <?= date('Y') ?> BugTracker
-            </p>
-          </td>
-        </tr>
-      </table>
-    </td>
-  </tr>
-</table>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f4f6f8; margin: 0; padding: 20px; line-height: 1.6; color: #333333; }
+        .container { max-width: 600px; background-color: #ffffff; padding: 30px; border-radius: 8px; margin: 0 auto; border: 1px solid #e1e4e8; }
+        .header { border-bottom: 2px solid #27ae60; padding-bottom: 15px; margin-bottom: 20px; }
+        .header h2 { color: #27ae60; margin: 0; }
+        .btn { display: inline-block; padding: 12px 24px; background-color: #27ae60; color: #ffffff !important; text-decoration: none; border-radius: 4px; font-weight: bold; margin: 20px 0; }
+        .highlight { background-color: #f8f9fa; padding: 10px; border-radius: 4px; border-left: 4px solid #27ae60; margin: 15px 0; }
+        .footer { margin-top: 30px; padding-top: 15px; border-top: 1px solid #eeeeee; font-size: 12px; color: #7f8c8d; text-align: center; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>Lời mời tham gia không gian làm việc</h2>
+        </div>
+        <p>Xin chào,</p>
+        <p>Bạn vừa nhận được lời mời tham gia làm việc trên BugTracker từ <strong><?= Sanitizer::escape($inviter_name) ?></strong>.</p>
+        
+        <div class="highlight">
+            <p style="margin: 5px 0;"><strong>Workspace:</strong> <?= Sanitizer::escape($workspace_name) ?></p>
+            <p style="margin: 5px 0;"><strong>Vai trò của bạn:</strong> <span style="text-transform: capitalize;"><?= Sanitizer::escape($role) ?></span></p>
+        </div>
+
+        <p>Để chấp nhận lời mời và bắt đầu làm việc, vui lòng nhấn vào nút bên dưới:</p>
+        
+        <div style="text-align: center;">
+            <a href="<?= Sanitizer::escape($invite_url) ?>" class="btn">Tham gia Workspace</a>
+        </div>
+        
+        <p style="font-size: 14px; color: #e74c3c;"><em>Lưu ý: Lời mời này sẽ hết hạn sau <?= Sanitizer::escape($expires_days) ?> ngày.</em></p>
+        <p>Nếu bạn chưa có tài khoản BugTracker, hệ thống sẽ hướng dẫn bạn tạo tài khoản nhanh chóng sau khi bấm vào liên kết.</p>
+        
+        <div class="footer">
+            &copy; <?= date('Y') ?> BugTracker. Email này được gửi tự động từ hệ thống.
+        </div>
+    </div>
 </body>
 </html>

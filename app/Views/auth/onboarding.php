@@ -1,82 +1,46 @@
-<?php $layout = 'auth'; ?>
 <?php
 /**
- * onboarding.php – Màn hình Onboarding chuẩn cấu trúc View Layer (Chống crash biến)
+ * @var string $csrf_token  Token chống tấn công giả mạo CSRF [cite: 180]
+ * @var array $errors       Mảng chứa thông báo lỗi xử lý mã mời [cite: 290]
  */
-$errors            = $errors            ?? [];
-$old_input         = $old_input         ?? [];
-$current_user_name = $current_user_name ?? '';
-
-// Tự động đồng bộ biến CSRF để chống lỗi Fatal Error trên PHP 8
-$activeCsrf = $csrfToken ?? $csrf_token ?? ''; 
+use App\Helpers\Sanitizer;
 ?>
 
-<div class="auth-card-wrapper onboarding-wrapper">
-
-    <div class="auth-header">
-        <a href="<?= url('/') ?>" class="auth-logo" aria-label="BugTracker – Trang chủ">
-            <img src="<?= asset('img/logo.png') ?>" alt="BugTracker" width="36" height="36" class="auth-logo__img">
-        </a>
-        <h1 class="auth-title">Chào mừng, <?= htmlspecialchars($current_user_name, ENT_QUOTES | ENT_HTML5, 'UTF-8') ?>!</h1>
-        <p class="auth-subtitle">Thiết lập không gian làm việc của bạn để bắt đầu săn bug.</p>
+<div class="onboarding-container">
+    <div class="onboarding-header text-center">
+        <h1 class="onboarding-title">Chào mừng bạn đến với BugTracker!</h1>
+        [cite_start]<p class="onboarding-subtitle">Để bắt đầu làm việc, vui lòng lựa chọn một trong hai phương thức thiết lập không gian dưới đây[cite: 120].</p>
     </div>
 
-    <div class="onboarding-options">
-        <div class="onboarding-card">
-            <div class="onboarding-card__body">
-                <h3>Tạo Workspace mới</h3>
-                <p>Khởi tạo một không gian làm việc độc lập cho đội ngũ của bạn.</p>
-                <button type="button" class="btn btn--secondary" onclick="document.getElementById('form-create').hidden = false; document.getElementById('form-join').hidden = true;">Chọn</button>
-            </div>
-            
-            <div id="form-create" class="onboarding-card__panel" hidden>
-                <form method="POST" action="<?= url('workspace/create') ?>" data-form-validate>
-                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($activeCsrf, ENT_QUOTES | ENT_HTML5, 'UTF-8') ?>">
-
-                    <div class="form-group <?= !empty($errors['name']) ? 'form-group--error' : '' ?>">
-                        <label class="form-label" for="ws-name">Tên Workspace</label>
-                        <input type="text" id="ws-name" name="name" class="form-control" required data-validate="required|min:2" value="<?= htmlspecialchars($old_input['name'] ?? '', ENT_QUOTES | ENT_HTML5, 'UTF-8') ?>">
-                    </div>
-
-                    <button type="submit" class="btn btn--primary" data-submit-btn>
-                        <span class="btn__text">Tạo Không Gian Làm Việc</span>
-                        <span class="btn__spinner" hidden>⏳</span>
-                    </button>
-                </form>
-            </div>
+    <div class="onboarding-grid">
+        <div class="card onboarding-card text-center">
+            <div class="card-icon">🏢</div>
+            <h3 class="card-title">Tạo Workspace mới</h3>
+            [cite_start]<p class="card-text">Dành cho Quản lý hoặc Trưởng nhóm muốn xây dựng một không gian làm việc độc lập cho doanh nghiệp hoặc dự án của mình[cite: 121, 290].</p>
+            <a href="/workspace/create" class="btn btn-primary btn-block">Bắt đầu khởi tạo</a>
         </div>
 
-        <div class="onboarding-card">
-            <div class="onboarding-card__body">
-                <h3>Tham gia Workspace</h3>
-                <p>Nhập mã mời (Token) bạn nhận được từ Email để vào nhóm có sẵn.</p>
-                <button type="button" class="btn btn--secondary" onclick="document.getElementById('form-join').hidden = false; document.getElementById('form-create').hidden = true;">Chọn</button>
+        <div class="card onboarding-card">
+            <div class="text-center">
+                <div class="card-icon">✉️</div>
+                <h3 class="card-title">Tham gia Workspace có sẵn</h3>
+                [cite_start]<p class="card-text">Nhập mã mời do Quản trị viên của bạn cung cấp hoặc chờ đợi liên kết xác nhận trực tiếp gửi đến hòm thư[cite: 122, 290].</p>
             </div>
 
-            <div id="form-join" class="onboarding-card__panel" hidden>
-                <form method="POST" action="<?= url('workspace/join') ?>" data-form-validate>
-                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($activeCsrf, ENT_QUOTES | ENT_HTML5, 'UTF-8') ?>">
-
-                    <div class="form-group <?= !empty($errors['invite_code']) ? 'form-group--error' : '' ?>">
-                        <label class="form-label" for="invite-code">Mã mời (Invite Code)</label>
-                        <input type="text" id="invite-code" name="invite_code" class="form-control" required data-validate="required">
-                    </div>
-
-                    <button type="submit" class="btn btn--primary" data-submit-btn>
-                        <span class="btn__text">Gia Nhập Ngay</span>
-                        <span class="btn__spinner" hidden>⏳</span>
-                    </button>
-                </form>
-            </div>
+            <form action="/onboarding/join-code" method="POST" class="onboarding-inline-form mt-3" novalidate>
+                <input type="hidden" name="csrf_token" value="<?= Sanitizer::escape($csrf_token) ?>">
+                
+                <div class="form-group">
+                    <label for="invite_code" class="sr-only">Mã mời Workspace</label>
+                    <input type="text" name="invite_code" id="invite_code" class="form-control text-center <?= !empty($errors['invite_code']) ? 'is-invalid' : '' ?>" 
+                           placeholder="Nhập mã mời (Ví dụ: WS-XYZ123)" required>
+                    <?php if (!empty($errors['invite_code'])): ?>
+                        <div class="invalid-feedback text-center"><?= Sanitizer::escape($errors['invite_code']) ?></div>
+                    <?php endif; ?>
+                </div>
+                
+                <button type="submit" class="btn btn-secondary btn-block">Kích hoạt tham gia</button>
+            </form>
         </div>
     </div>
-
-    <div class="auth-footer-text">
-        Không phải bạn? 
-        <form method="POST" action="<?= url('logout') ?>" class="auth-footer-form">
-            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($activeCsrf, ENT_QUOTES | ENT_HTML5, 'UTF-8') ?>">
-            <button type="submit" class="auth-footer-link auth-footer-link--btn">Đăng xuất</button>
-        </form>
-    </div>
-
 </div>

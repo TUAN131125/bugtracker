@@ -1,67 +1,41 @@
 <?php
-// Biến: $user_name, $reset_url, $expires_hours
+/**
+ * @var string $user_name      Tên người dùng
+ * @var string $reset_url      Đường link đặt lại mật khẩu chứa token
+ * @var int $expires_hours     Thời gian hết hạn (1 giờ)
+ */
 ?>
 <!DOCTYPE html>
-<html lang="vi">
-<head><meta charset="UTF-8"><title>Đặt lại mật khẩu – BugTracker</title></head>
-<body style="margin:0;padding:0;background-color:#F8FAFC;font-family:Arial,Helvetica,sans-serif;">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
-       style="background-color:#F8FAFC;padding:40px 0;">
-  <tr>
-    <td align="center">
-      <table role="presentation" width="520" cellpadding="0" cellspacing="0"
-             style="background-color:#FFFFFF;border-radius:8px;border:1px solid #E2E8F0;overflow:hidden;">
-        <tr>
-          <td style="background-color:#DC2626;padding:28px 40px;text-align:center;">
-            <p style="margin:0;color:#FFFFFF;font-size:22px;font-weight:700;">🐛 BugTracker</p>
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:40px;">
-            <p style="margin:0 0 16px;font-size:16px;color:#0F172A;">
-              Xin chào <strong><?= htmlspecialchars($user_name, ENT_QUOTES, 'UTF-8') ?></strong>,
-            </p>
-            <p style="margin:0 0 8px;font-size:15px;color:#334155;line-height:1.7;">
-              Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản của bạn.
-              Nhấn nút bên dưới để tiếp tục:
-            </p>
-            <!-- Cảnh báo bảo mật -->
-            <div style="margin:0 0 24px;padding:12px 16px;background-color:#FEF2F2;
-                        border-left:4px solid #EF4444;border-radius:0 4px 4px 0;">
-              <p style="margin:0;font-size:13px;color:#991B1B;">
-                ⚠ Nếu bạn không yêu cầu đặt lại mật khẩu, hãy bỏ qua email này.
-                Tài khoản của bạn vẫn an toàn.
-              </p>
-            </div>
-            <table role="presentation" cellpadding="0" cellspacing="0"
-                   style="margin:0 auto 28px;">
-              <tr>
-                <td style="background-color:#DC2626;border-radius:6px;">
-                  <a href="<?= htmlspecialchars($reset_url, ENT_QUOTES, 'UTF-8') ?>"
-                     style="display:inline-block;padding:14px 32px;color:#FFFFFF;
-                            font-size:15px;font-weight:600;text-decoration:none;">
-                    Đặt lại mật khẩu
-                  </a>
-                </td>
-              </tr>
-            </table>
-            <p style="margin:0;font-size:13px;color:#94A3B8;">
-              ⏱ Link chỉ có hiệu lực <strong><?= (int) $expires_hours ?> giờ</strong>
-              và <strong>chỉ dùng được một lần</strong>.
-            </p>
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:20px 40px;background-color:#F8FAFC;
-                     border-top:1px solid #E2E8F0;text-align:center;">
-            <p style="margin:0;font-size:12px;color:#94A3B8;">
-              © <?= date('Y') ?> BugTracker
-            </p>
-          </td>
-        </tr>
-      </table>
-    </td>
-  </tr>
-</table>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f4f6f8; margin: 0; padding: 20px; line-height: 1.6; color: #333333; }
+        .container { max-width: 600px; background-color: #ffffff; padding: 30px; border-radius: 8px; margin: 0 auto; border: 1px solid #e1e4e8; }
+        .header { border-bottom: 2px solid #e67e22; padding-bottom: 15px; margin-bottom: 20px; }
+        .header h2 { color: #e67e22; margin: 0; }
+        .btn { display: inline-block; padding: 12px 24px; background-color: #e67e22; color: #ffffff !important; text-decoration: none; border-radius: 4px; font-weight: bold; margin: 20px 0; }
+        .footer { margin-top: 30px; padding-top: 15px; border-top: 1px solid #eeeeee; font-size: 12px; color: #7f8c8d; text-align: center; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>Yêu cầu đặt lại mật khẩu</h2>
+        </div>
+        <p>Chào <strong><?= Sanitizer::escape($user_name) ?></strong>,</p>
+        <p>Hệ thống BugTracker vừa nhận được yêu cầu đặt lại mật khẩu cho tài khoản của bạn. Vui lòng nhấn vào nút bên dưới để tạo mật khẩu mới:</p>
+        
+        <div style="text-align: center;">
+            <a href="<?= Sanitizer::escape($reset_url) ?>" class="btn">Đặt lại Mật khẩu</a>
+        </div>
+        
+        <p style="font-size: 14px; color: #e74c3c;"><em>Lưu ý: Để đảm bảo bảo mật, liên kết này chỉ có hiệu lực trong vòng <?= Sanitizer::escape($expires_hours) ?> giờ.</em></p>
+        <p>Nếu bạn không yêu cầu thay đổi mật khẩu, vui lòng bỏ qua email này. Tài khoản của bạn vẫn được an toàn.</p>
+        
+        <div class="footer">
+            &copy; <?= date('Y') ?> BugTracker.
+        </div>
+    </div>
 </body>
 </html>

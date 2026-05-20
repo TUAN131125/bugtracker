@@ -1,170 +1,58 @@
-/* ============================================================
-   _variables.css – Design Tokens toàn hệ thống
-   NGUỒN SỰ THẬT DUY NHẤT cho màu sắc, typography, spacing.
-   Không bao giờ hardcode giá trị trong file CSS khác.
-   ============================================================ */
-
 :root {
-  /* ----------------------------------------------------------
-       BRAND COLORS
-       ---------------------------------------------------------- */
-  --color-primary-50: #eff6ff;
-  --color-primary-100: #dbeafe;
-  --color-primary-600: #2563eb;
-  --color-primary-700: #1d4ed8;
+  /* Brand Colors (Tham chiếu từ tài liệu: Primary là xanh Blue/Teal) */
+  --primary-color: #2e86ab;
+  --primary-hover: #246a87;
+  --secondary-color: #6c757d;
 
-  /* ----------------------------------------------------------
-       SEMANTIC COLORS
-       ---------------------------------------------------------- */
-  --color-success-500: #22c55e;
-  --color-success-50: #f0fdf4;
+  /* Semantic Colors (Trạng thái hệ thống) */
+  --success-color: #27ae60;
+  --danger-color: #e74c3c;
+  --warning-color: #f39c12;
+  --info-color: #17a2b8;
 
-  --color-danger-500: #ef4444;
-  --color-danger-600: #dc2626;
-  --color-danger-50: #fef2f2;
+  /* Neutral Colors (Nền, Khung, Chữ) */
+  --dark-color: #343a40;
+  --light-color: #f8f9fa;
+  --bg-body: #f4f6f8;
+  --bg-auth: #eef2f5;
+  --border-color: #e1e4e8;
+  --text-main: #333333;
+  --text-muted: #7f8c8d;
 
-  --color-warning-500: #f59e0b;
-  --color-warning-50: #fffbeb;
+  /* Typography */
+  --font-family: "Inter", "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  --font-size-base: 15px;
+  --font-size-small: 13px;
 
-  --color-info-500: #06b6d4;
-  --color-info-50: #ecfeff;
+  /* Layout Variables */
+  --sidebar-width: 260px;
+  --header-height: 64px;
+  --border-radius: 6px;
+  --box-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05);
+  --box-shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07);
+}
 
-  /* ----------------------------------------------------------
-       NEUTRAL SCALE
-       ---------------------------------------------------------- */
-  --color-neutral-900: #0f172a;
-  --color-neutral-800: #1e293b;
-  --color-neutral-700: #334155;
-  --color-neutral-600: #475569;
-  --color-neutral-500: #64748b;
-  --color-neutral-400: #94a3b8;
-  --color-neutral-300: #cbd5e1;
-  --color-neutral-200: #e2e8f0;
-  --color-neutral-100: #f1f5f9;
-  --color-neutral-50: #f8fafc;
-  --color-surface: #ffffff;
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
 
-  /* ----------------------------------------------------------
-       SIDEBAR – Dark theme
-       ---------------------------------------------------------- */
-  --sidebar-bg: #0f172a;
-  --sidebar-width: 240px;
-  --sidebar-collapsed-width: 64px;
-  --sidebar-text: #94a3b8;
-  --sidebar-text-active: #ffffff;
-  --sidebar-item-active-bg: rgba(37, 99, 235, 0.2);
-  --sidebar-item-hover-bg: rgba(255, 255, 255, 0.06);
-  --sidebar-border: rgba(255, 255, 255, 0.08);
-  --sidebar-icon-color: #64748b;
-  --sidebar-icon-active: #2563eb;
+body {
+  font-family: var(--font-family);
+  font-size: var(--font-size-base);
+  color: var(--text-main);
+  background-color: var(--bg-body);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
 
-  /* ----------------------------------------------------------
-       LAYOUT
-       ---------------------------------------------------------- */
-  --header-height: 60px;
-  --content-max-width: 1280px;
+a {
+  color: var(--primary-color);
+  text-decoration: none;
+  transition: color 0.2s;
+}
 
-  /* ----------------------------------------------------------
-       TYPOGRAPHY
-       ---------------------------------------------------------- */
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
-  --font-mono: "SFMono-Regular", Consolas, "Courier New", monospace;
-
-  --text-xs: 0.75rem;
-  --text-sm: 0.875rem;
-  --text-base: 1rem;
-  --text-lg: 1.125rem;
-  --text-xl: 1.25rem;
-  --text-2xl: 1.5rem;
-  --text-3xl: 1.875rem;
-
-  --font-weight-normal: 400;
-  --font-weight-medium: 500;
-  --font-weight-semibold: 600;
-  --font-weight-bold: 700;
-
-  --line-height-tight: 1.25;
-  --line-height-normal: 1.5;
-  --line-height-relaxed: 1.7;
-
-  /* ----------------------------------------------------------
-       SPACING
-       ---------------------------------------------------------- */
-  --space-1: 0.25rem;
-  --space-2: 0.5rem;
-  --space-3: 0.75rem;
-  --space-4: 1rem;
-  --space-5: 1.25rem;
-  --space-6: 1.5rem;
-  --space-8: 2rem;
-  --space-10: 2.5rem;
-  --space-12: 3rem;
-
-  /* ----------------------------------------------------------
-       BORDER RADIUS
-       ---------------------------------------------------------- */
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
-  --radius-full: 9999px;
-
-  /* ----------------------------------------------------------
-       SHADOWS
-       ---------------------------------------------------------- */
-  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.04);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12), 0 4px 8px rgba(0, 0, 0, 0.06);
-  --shadow-xl: 0 20px 40px rgba(0, 0, 0, 0.15);
-
-  /* ----------------------------------------------------------
-       TRANSITIONS
-       ---------------------------------------------------------- */
-  --transition-fast: 150ms ease;
-  --transition-normal: 250ms ease;
-  --transition-slow: 400ms ease;
-
-  /* ----------------------------------------------------------
-       STATUS BADGE COLORS – Issue Status
-       ---------------------------------------------------------- */
-  --badge-open-bg: #dbeafe;
-  --badge-open-text: #1e40af;
-
-  --badge-triage-bg: #e0f2fe;
-  --badge-triage-text: #0c4a6e;
-
-  --badge-progress-bg: #fef3c7;
-  --badge-progress-text: #92400e;
-
-  --badge-resolved-bg: #d1fae5;
-  --badge-resolved-text: #065f46;
-
-  --badge-closed-bg: #dcfce7;
-  --badge-closed-text: #14532d;
-
-  --badge-reopened-bg: #fee2e2;
-  --badge-reopened-text: #991b1b;
-
-  --badge-wontfix-bg: #f3f4f6;
-  --badge-wontfix-text: #4b5563;
-
-  --badge-duplicate-bg: #f3f4f6;
-  --badge-duplicate-text: #4b5563;
-
-  /* ----------------------------------------------------------
-       SEVERITY COLORS
-       ---------------------------------------------------------- */
-  --severity-critical: #ef4444;
-  --severity-major: #f97316;
-  --severity-minor: #eab308;
-  --severity-trivial: #6b7280;
-
-  /* ----------------------------------------------------------
-       PRIORITY COLORS
-       ---------------------------------------------------------- */
-  --priority-urgent: #dc2626;
-  --priority-high: #ea580c;
-  --priority-medium: #ca8a04;
-  --priority-low: #4b5563;
+a:hover {
+  color: var(--primary-hover);
 }
