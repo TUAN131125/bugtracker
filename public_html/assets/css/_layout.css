@@ -1,0 +1,77 @@
+/* ==========================================================================
+   Layout: Auth & Onboarding (Centered Box)
+   ========================================================================== */
+.auth-layout-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    background-color: var(--bg-auth);
+    padding: 1rem;
+}
+
+.auth-centered-wrapper {
+    width: 100%;
+    max-width: 420px;
+}
+
+.auth-card {
+    background: #fff;
+    border-radius: var(--border-radius);
+    box-shadow: var(--box-shadow-md);
+    padding: 2.5rem;
+}
+
+.auth-header { text-align: center; margin-bottom: 2rem; }
+.auth-title { font-size: 1.5rem; color: var(--dark-color); margin-bottom: 0.5rem; }
+.auth-subtitle { color: var(--text-muted); font-size: var(--font-size-small); }
+.auth-footer { margin-top: 1.5rem; text-align: center; font-size: var(--font-size-small); }
+
+/* ==========================================================================
+   Layout: App (Sidebar + Header + Main Content)
+   ========================================================================== */
+.app-layout {
+    display: grid;
+    grid-template-columns: var(--sidebar-width) 1fr;
+    min-height: 100vh;
+}
+
+.app-sidebar-wrapper {
+    background-color: #fff;
+    border-right: 1px solid var(--border-color);
+    position: fixed;
+    width: var(--sidebar-width);
+    height: 100vh;
+    z-index: 100;
+}
+
+.app-main-container {
+    margin-left: var(--sidebar-width);
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+.app-header-wrapper {
+    height: var(--header-height);
+    background-color: #fff;
+    border-bottom: 1px solid var(--border-color);
+    position: sticky;
+    top: 0;
+    z-index: 90;
+}
+
+.app-content-body {
+    padding: 2rem;
+    flex-grow: 1;
+}
+
+/* Page Headers (Tiêu đề trang nằm trong main content) */
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 1.5rem;
+}
+.page-header h1 { font-size: 1.5rem; color: var(--dark-color); }
+.page-header .subtitle { color: var(--text-muted); font-size: var(--font-size-small); margin-top: 0.25rem; }

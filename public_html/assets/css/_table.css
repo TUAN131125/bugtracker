@@ -1,0 +1,108 @@
+/* ==========================================================================
+   Data Tables
+   ========================================================================== */
+.table-card {
+    overflow-x: auto;
+}
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    background-color: #fff;
+    font-size: var(--font-size-small);
+}
+
+.data-table th, .data-table td {
+    padding: 1rem;
+    vertical-align: middle;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.data-table th {
+    text-align: left;
+    font-weight: 600;
+    color: var(--text-muted);
+    background-color: var(--light-color);
+    text-transform: uppercase;
+    font-size: 12px;
+    letter-spacing: 0.5px;
+}
+
+.data-table tbody tr {
+    transition: background-color 0.15s ease;
+}
+
+.data-table tbody tr:hover {
+    background-color: var(--bg-body);
+}
+
+.data-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+/* Các class hỗ trợ hiển thị bảng */
+.cursor-pointer { cursor: pointer; }
+.text-truncate {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Trạng thái bảng rỗng (Empty State) */
+.empty-state {
+    padding: 3rem 1rem;
+    text-align: center;
+    color: var(--text-muted);
+}
+.img-empty-state {
+    max-width: 150px;
+    margin-bottom: 1rem;
+    opacity: 0.7;
+}
+
+/* ==========================================================================
+   Pagination (Phân trang)
+   ========================================================================== */
+.pagination {
+    display: flex;
+    padding-left: 0;
+    list-style: none;
+    border-radius: var(--border-radius);
+}
+
+.page-item { margin: 0 2px; }
+
+.page-link {
+    position: relative;
+    display: block;
+    padding: 0.5rem 0.75rem;
+    line-height: 1.25;
+    color: var(--primary-color);
+    background-color: #fff;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    text-decoration: none;
+    transition: all 0.2s;
+}
+
+.page-link:hover {
+    z-index: 2;
+    color: var(--primary-hover);
+    background-color: var(--light-color);
+    border-color: var(--border-color);
+}
+
+.page-item.active .page-link {
+    z-index: 3;
+    color: #fff;
+    background-color: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+.page-item.disabled .page-link {
+    color: #a0aec0;
+    pointer-events: none;
+    cursor: auto;
+    background-color: #fff;
+    border-color: var(--border-color);
+}

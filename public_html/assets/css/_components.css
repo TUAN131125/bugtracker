@@ -1,0 +1,93 @@
+/* ==========================================================================
+   Cards (Thẻ chứa nội dung)
+   ========================================================================== */
+.card {
+    background: #fff;
+    border-radius: var(--border-radius);
+    border: 1px solid var(--border-color);
+    box-shadow: var(--box-shadow-sm);
+    margin-bottom: 1.5rem;
+}
+
+.card-header {
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--border-color);
+    background-color: var(--light-color);
+    border-radius: var(--border-radius) var(--border-radius) 0 0;
+}
+
+.card-body { padding: 1.25rem; }
+
+/* ==========================================================================
+   Buttons (Nút bấm)
+   ========================================================================== */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.5rem 1rem;
+    font-size: var(--font-size-base);
+    font-family: inherit;
+    font-weight: 500;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-decoration: none;
+}
+
+.btn-block { width: 100%; }
+.btn-sm { padding: 0.25rem 0.75rem; font-size: var(--font-size-small); }
+
+.btn-primary { background-color: var(--primary-color); color: #fff; }
+.btn-primary:hover { background-color: var(--primary-hover); }
+
+.btn-secondary { background-color: var(--secondary-color); color: #fff; }
+.btn-secondary-outline { background-color: transparent; border-color: var(--secondary-color); color: var(--secondary-color); }
+
+.btn-danger { background-color: var(--danger-color); color: #fff; }
+.btn-danger-outline { background-color: transparent; border-color: var(--danger-color); color: var(--danger-color); }
+.btn-danger-outline:hover { background-color: var(--danger-color); color: #fff; }
+
+.btn:disabled, .btn.disabled { opacity: 0.65; cursor: not-allowed; pointer-events: none; }
+
+/* ==========================================================================
+   Badges (Nhãn trạng thái)
+   ========================================================================== */
+.badge {
+    display: inline-block;
+    padding: 0.25em 0.6em;
+    font-size: 0.75rem;
+    font-weight: 700;
+    line-height: 1;
+    text-align: center;
+    white-space: nowrap;
+    vertical-align: baseline;
+    border-radius: 0.25rem;
+}
+
+.badge-primary { background-color: var(--primary-color); color: #fff; }
+.badge-success { background-color: var(--success-color); color: #fff; }
+.badge-danger { background-color: var(--danger-color); color: #fff; }
+.badge-warning { background-color: var(--warning-color); color: #fff; }
+.badge-info { background-color: var(--info-color); color: #fff; }
+.badge-secondary { background-color: var(--secondary-color); color: #fff; }
+.badge-light { background-color: var(--border-color); color: var(--dark-color); }
+
+/* Issue Status Specific Badges */
+.status-open { background-color: var(--danger-color); color: #fff; }
+.status-in_progress { background-color: var(--warning-color); color: #fff; }
+.status-resolved { background-color: var(--info-color); color: #fff; }
+.status-closed { background-color: var(--success-color); color: #fff; }
+
+/* ==========================================================================
+   Avatars & Utils
+   ========================================================================== */
+.avatar-xs { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; }
+.avatar-sm { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; }
+.avatar-md { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; }
+
+.text-muted { color: var(--text-muted); }
+.text-small { font-size: var(--font-size-small); }
+.font-weight-bold { font-weight: 700; }
+.text-center { text-align: center; }
